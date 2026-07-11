@@ -246,9 +246,10 @@ function setFormMode(mode) {
   const photoField = $("#photo-field");
   const preview = $("#photo-preview");
 
+  const viewActions = $(".view-actions");
+  const editActions = $(".edit-actions");
   const editBtn = $("#btn-edit-form");
   const delBtn = $("#btn-delete-form");
-  const cancelBtn = $("#btn-cancel-form");
   const saveBtn = $("#btn-save-form");
 
   if (mode === "add") {
@@ -256,27 +257,24 @@ function setFormMode(mode) {
     nameInput.readOnly = false;
     photoInput.hidden = false;
     photoField.hidden = false;
-    editBtn.hidden = true;
-    delBtn.hidden = true;
-    cancelBtn.hidden = false;
+    viewActions.hidden = true;
+    editActions.hidden = false;
     saveBtn.hidden = false;
   } else if (mode === "view") {
     title.textContent = "Карточка товара";
     nameInput.readOnly = true;
     photoInput.hidden = true;
     photoField.hidden = false;
-    editBtn.hidden = false;
-    delBtn.hidden = false;
-    cancelBtn.hidden = false;
+    viewActions.hidden = false;
+    editActions.hidden = false;
     saveBtn.hidden = true;
   } else if (mode === "edit") {
     title.textContent = "Редактировать товар";
     nameInput.readOnly = false;
     photoInput.hidden = false;
     photoField.hidden = false;
-    editBtn.hidden = true;
-    delBtn.hidden = true;
-    cancelBtn.hidden = false;
+    viewActions.hidden = true;
+    editActions.hidden = false;
     saveBtn.hidden = false;
   }
   const form = $("#product-form");
