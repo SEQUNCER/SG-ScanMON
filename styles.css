@@ -309,6 +309,18 @@ body {
 }
 .field input[readonly] {
   opacity: .8;
+  background: var(--surface);
+}
+.product-form.mode-view {
+  border-color: var(--border);
+}
+.product-form.mode-edit {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, .35);
+}
+.product-form.mode-edit #form-name {
+  background: #2a2418;
+  border-color: #c9971f;
 }
 .product-card { cursor: pointer; }
 

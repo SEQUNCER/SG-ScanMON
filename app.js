@@ -191,7 +191,6 @@ function stopScanner(which) {
     cfg.reader.stopAsync().catch(() => {});
   }
   cfg.reader = null;
-  cfg.locked = false;
   const video = $(`#${which}-video`);
   if (video && video.srcObject) {
     video.srcObject.getTracks().forEach((t) => t.stop());
@@ -280,6 +279,9 @@ function setFormMode(mode) {
     cancelBtn.hidden = false;
     saveBtn.hidden = false;
   }
+  const form = $("#product-form");
+  form.classList.toggle("mode-view", mode === "view");
+  form.classList.toggle("mode-edit", mode === "edit" || mode === "add");
 }
 
 function openFormAdd(barcode) {
@@ -313,24 +315,28 @@ async function openFormView(id) {
   $("#form-overlay").hidden = false;
 }
 
-$("#btn-edit-form").addEventListener("click", () => {
-  if (formMode === "view") setFormMode("edit");
-  $("#form-name").focus();
-});
-
-$("#btn-cancel-form").addEventListener("click", () => {
+function closeModal() {
   $("#form-overlay").hidden = true;
   currentProduct = null;
   scanners.add.locked = false;
   scanners.find.locked = false;
+}
+
+$("#btn-edit-form").addEventListener("click", () => {
+  if (formMode === "view") {
+    setFormMode("edit");
+    showToast("Редактирование включено");
+  }
+  $("#form-name").focus();
 });
+
+$("#btn-cancel-form").addEventListener("click", closeModal);
 
 $("#btn-delete-form").addEventListener("click", async () => {
   if (!currentProduct) return;
   if (confirm(`Удалить «${currentProduct.name}»?`)) {
     await dbDelete(currentProduct.id);
-    $("#form-overlay").hidden = true;
-    currentProduct = null;
+    closeModal();
     showToast("Товар удалён");
     renderProducts();
   }
@@ -373,10 +379,7 @@ $("#product-form").addEventListener("submit", async (e) => {
     showToast("Изменения сохранены");
   }
 
-  $("#form-overlay").hidden = true;
-  currentProduct = null;
-  scanners.add.locked = false;
-  scanners.find.locked = false;
+  closeModal();
   switchTab("products");
 });
 
