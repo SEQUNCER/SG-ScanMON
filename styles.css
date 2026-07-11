@@ -274,6 +274,41 @@ body {
 .nav-btn .nav-icon { font-size: 22px; line-height: 1; }
 .nav-btn.active { color: var(--primary); }
 
+/* Модальное окно товара */
+.form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+}
+.product-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.product-form h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+}
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.field input[readonly] {
+  opacity: .8;
+}
+.product-card { cursor: pointer; }
+
 /* Toast */
 .toast {
   position: fixed;

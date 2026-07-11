@@ -26,45 +26,72 @@
     <section id="tab-add" class="tab-panel" hidden>
       <div class="scanner-block">
         <div class="scanner-viewport">
-          <video id="scanner-video" playsinline muted></video>
+          <video id="add-video" playsinline muted></video>
           <div class="scan-overlay">
             <div class="scan-line"></div>
           </div>
         </div>
         <div class="scanner-controls">
-          <button id="btn-start-scan" class="btn btn-primary">Запустить сканер</button>
-          <button id="btn-stop-scan" class="btn" hidden>Остановить</button>
+          <button id="btn-start-add" class="btn btn-primary">Запустить сканер</button>
+          <button id="btn-stop-add" class="btn" hidden>Остановить</button>
         </div>
         <p class="hint">Наведите камеру на штрихкод. Или введите код вручную:</p>
         <div class="manual-row">
-          <input id="manual-barcode" type="text" inputmode="numeric" placeholder="Штрихкод вручную" />
-          <button id="btn-use-manual" class="btn">Ввести</button>
+          <input id="add-manual" type="text" inputmode="numeric" placeholder="Штрихкод вручную" />
+          <button id="btn-add-manual" class="btn">Ввести</button>
         </div>
       </div>
+    </section>
 
-      <!-- Форма товара (появляется после сканирования) -->
-      <form id="product-form" class="product-form" hidden>
-        <h2>Новый товар</h2>
-        <label class="field">
-          <span>Штрихкод</span>
-          <input id="form-barcode" type="text" readonly />
-        </label>
-        <label class="field">
-          <span>Название товара</span>
-          <input id="form-name" type="text" placeholder="Например: Молоко 1л" required />
-        </label>
-        <label class="field">
-          <span>Фото товара</span>
-          <input id="form-photo" type="file" accept="image/*" capture="environment" />
-          <div id="photo-preview" class="photo-preview"></div>
-        </label>
-        <div class="form-actions">
-          <button type="button" id="btn-cancel-form" class="btn">Отмена</button>
-          <button type="submit" class="btn btn-primary">Сохранить товар</button>
+    <!-- Вкладка: Найти товар -->
+    <section id="tab-find" class="tab-panel" hidden>
+      <p class="hint">Отсканируйте штрихкод — приложение найдёт товар в базе.</p>
+      <div class="scanner-block">
+        <div class="scanner-viewport">
+          <video id="find-video" playsinline muted></video>
+          <div class="scan-overlay">
+            <div class="scan-line"></div>
+          </div>
         </div>
-      </form>
+        <div class="scanner-controls">
+          <button id="btn-start-find" class="btn btn-primary">Запустить сканер</button>
+          <button id="btn-stop-find" class="btn" hidden>Остановить</button>
+        </div>
+        <p class="hint">Или введите код вручную:</p>
+        <div class="manual-row">
+          <input id="find-manual" type="text" inputmode="numeric" placeholder="Штрихкод вручную" />
+          <button id="btn-find-manual" class="btn">Найти</button>
+        </div>
+      </div>
+      <p id="find-message" class="empty-hint" hidden></p>
     </section>
   </main>
+
+  <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
+  <div id="form-overlay" class="form-overlay" hidden>
+    <form id="product-form" class="product-form">
+      <h2 id="form-title">Новый товар</h2>
+      <label class="field">
+        <span>Штрихкод</span>
+        <input id="form-barcode" type="text" readonly />
+      </label>
+      <label class="field">
+        <span>Название товара</span>
+        <input id="form-name" type="text" placeholder="Например: Молоко 1л" required />
+      </label>
+      <label class="field" id="photo-field">
+        <span>Фото товара</span>
+        <input id="form-photo" type="file" accept="image/*" capture="environment" />
+        <div id="photo-preview" class="photo-preview"></div>
+      </label>
+      <div class="form-actions">
+        <button type="button" id="btn-edit-form" class="btn btn-primary">Редактировать</button>
+        <button type="button" id="btn-delete-form" class="btn btn-danger">Удалить</button>
+        <button type="button" id="btn-cancel-form" class="btn">Отмена</button>
+        <button type="submit" id="btn-save-form" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
 
   <nav class="bottom-nav">
     <button class="nav-btn active" data-tab="products">
@@ -73,7 +100,11 @@
     </button>
     <button class="nav-btn" data-tab="add">
       <span class="nav-icon">＋</span>
-      <span>Добавить товар</span>
+      <span>Добавить</span>
+    </button>
+    <button class="nav-btn" data-tab="find">
+      <span class="nav-icon">⌕</span>
+      <span>Найти</span>
     </button>
   </nav>
 

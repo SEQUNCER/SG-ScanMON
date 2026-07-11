@@ -41,6 +41,11 @@ async function dbGetAll() {
   });
 }
 
+async function dbGetByBarcode(barcode) {
+  const all = await dbGetAll();
+  return all.find((p) => String(p.barcode) === String(barcode)) || null;
+}
+
 async function dbDelete(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -78,8 +83,12 @@ function switchTab(name) {
     b.classList.toggle("active", b.dataset.tab === name)
   );
   $("#tab-" + name).hidden = false;
+  if (name !== "add") stopScanner("add");
+  if (name !== "find") {
+    stopScanner("find");
+    $("#find-message").hidden = true;
+  }
   if (name === "products") renderProducts();
-  if (name === "add") stopScan();
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -126,7 +135,8 @@ async function renderProducts() {
     const del = document.createElement("button");
     del.className = "card-del";
     del.textContent = "Удалить";
-    del.addEventListener("click", async () => {
+    del.addEventListener("click", async (e) => {
+      e.stopPropagation();
       if (confirm(`Удалить «${p.name}»?`)) {
         await dbDelete(p.id);
         showToast("Товар удалён");
@@ -135,103 +145,202 @@ async function renderProducts() {
     });
 
     card.append(img, body, del);
+    card.addEventListener("click", () => openFormView(p.id));
     list.append(card);
   }
 }
 
 $("#search").addEventListener("input", renderProducts);
 
-/* ===== Сканер штрихкода ===== */
-let codeReader = null;
-let scanActive = false;
-let scannedLocked = false;
+/* ===== Универсальный сканер ===== */
+const scanners = {
+  add: { reader: null, locked: false },
+  find: { reader: null, locked: false },
+};
 
-async function startScan() {
+async function startScanner(which) {
+  const cfg = scanners[which];
   if (!window.ZXing) {
     showToast("Библиотека сканера не загрузилась (нужен интернет)");
     return;
   }
-  scannedLocked = false;
+  cfg.locked = false;
+  const video = $(`#${which}-video`);
   try {
-    codeReader = new ZXing.BrowserMultiFormatReader();
-    await codeReader.decodeFromVideoDevice(
-      undefined,
-      $("#scanner-video"),
-      (result, err, controls) => {
-        if (result && !scannedLocked) {
-          scannedLocked = true;
-          const code = result.getText();
-          stopScan();
-          openProductForm(code);
-        }
+    cfg.reader = new ZXing.BrowserMultiFormatReader();
+    await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
+      if (result && !cfg.locked) {
+        cfg.locked = true;
+        const code = result.getText();
+        stopScanner(which);
+        if (which === "add") openFormAdd(code);
+        else handleFind(code);
       }
-    );
-    scanActive = true;
-    $("#btn-start-scan").hidden = true;
-    $("#btn-stop-scan").hidden = false;
+    });
+    $(`#btn-start-${which}`).hidden = true;
+    $(`#btn-stop-${which}`).hidden = false;
   } catch (e) {
     console.error(e);
     showToast("Нет доступа к камере. Проверьте разрешения и HTTPS/localhost");
   }
 }
 
-function stopScan() {
-  if (codeReader && typeof codeReader.stopAsync === "function") {
-    codeReader.stopAsync().catch(() => {});
+function stopScanner(which) {
+  const cfg = scanners[which];
+  if (cfg.reader && typeof cfg.reader.stopAsync === "function") {
+    cfg.reader.stopAsync().catch(() => {});
   }
-  scanActive = false;
-  $("#btn-start-scan").hidden = false;
-  $("#btn-stop-scan").hidden = true;
-  const v = $("#scanner-video");
-  if (v && v.srcObject) {
-    v.srcObject.getTracks().forEach((t) => t.stop());
-    v.srcObject = null;
+  cfg.reader = null;
+  cfg.locked = false;
+  const video = $(`#${which}-video`);
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  const startBtn = $(`#btn-start-${which}`);
+  const stopBtn = $(`#btn-stop-${which}`);
+  if (startBtn) startBtn.hidden = false;
+  if (stopBtn) stopBtn.hidden = true;
+}
+
+["add", "find"].forEach((which) => {
+  $(`#btn-start-${which}`).addEventListener("click", () => startScanner(which));
+  $(`#btn-stop-${which}`).addEventListener("click", () => stopScanner(which));
+});
+
+function wireManual(which, inputId, handler) {
+  $(`#btn-${which}-manual`).addEventListener("click", () => {
+    const code = $(`#${inputId}`).value.trim();
+    if (!code) {
+      showToast("Введите штрихкод");
+      return;
+    }
+    stopScanner(which);
+    handler(code);
+  });
+}
+wireManual("add", "add-manual", openFormAdd);
+wireManual("find", "find-manual", handleFind);
+
+/* ===== Поиск товара по базе ===== */
+async function handleFind(barcode) {
+  const msg = $("#find-message");
+  const product = await dbGetByBarcode(barcode);
+  if (product) {
+    msg.hidden = true;
+    openFormView(product.id);
+  } else {
+    msg.hidden = false;
+    msg.textContent = `Товар со штрихкодом ${barcode} не найден в базе.`;
   }
 }
 
-$("#btn-start-scan").addEventListener("click", startScan);
-$("#btn-stop-scan").addEventListener("click", stopScan);
+/* ===== Модальное окно товара ===== */
+let currentProduct = null;
+let formMode = "add"; // add | view | edit
 
-$("#btn-use-manual").addEventListener("click", () => {
-  const code = $("#manual-barcode").value.trim();
-  if (!code) {
-    showToast("Введите штрихкод");
-    return;
+function setFormMode(mode) {
+  formMode = mode;
+  const title = $("#form-title");
+  const nameInput = $("#form-name");
+  const photoInput = $("#form-photo");
+  const photoField = $("#photo-field");
+  const preview = $("#photo-preview");
+
+  const editBtn = $("#btn-edit-form");
+  const delBtn = $("#btn-delete-form");
+  const cancelBtn = $("#btn-cancel-form");
+  const saveBtn = $("#btn-save-form");
+
+  if (mode === "add") {
+    title.textContent = "Новый товар";
+    nameInput.readOnly = false;
+    photoInput.hidden = false;
+    photoField.hidden = false;
+    editBtn.hidden = true;
+    delBtn.hidden = true;
+    cancelBtn.hidden = false;
+    saveBtn.hidden = false;
+  } else if (mode === "view") {
+    title.textContent = "Карточка товара";
+    nameInput.readOnly = true;
+    photoInput.hidden = true;
+    photoField.hidden = false;
+    editBtn.hidden = false;
+    delBtn.hidden = false;
+    cancelBtn.hidden = false;
+    saveBtn.hidden = true;
+  } else if (mode === "edit") {
+    title.textContent = "Редактировать товар";
+    nameInput.readOnly = false;
+    photoInput.hidden = false;
+    photoField.hidden = false;
+    editBtn.hidden = true;
+    delBtn.hidden = true;
+    cancelBtn.hidden = false;
+    saveBtn.hidden = false;
   }
-  stopScan();
-  openProductForm(code);
-});
+}
 
-/* ===== Форма товара ===== */
-let pendingPhotoBlob = null;
-
-function openProductForm(barcode) {
+function openFormAdd(barcode) {
+  currentProduct = null;
   $("#form-barcode").value = barcode;
-  if ($("#product-form").hidden) {
-    $("#form-name").value = "";
-    pendingPhotoBlob = null;
-    $("#photo-preview").innerHTML = "";
-  }
-  $("#product-form").hidden = false;
+  $("#form-name").value = "";
+  $("#photo-preview").innerHTML = "";
+  $("#form-photo").value = "";
+  setFormMode("add");
+  $("#form-overlay").hidden = false;
   $("#form-name").focus();
   showToast("Штрихкод: " + barcode);
 }
 
+async function openFormView(id) {
+  const all = await dbGetAll();
+  currentProduct = all.find((p) => p.id === id) || null;
+  if (!currentProduct) return;
+  $("#form-barcode").value = currentProduct.barcode;
+  $("#form-name").value = currentProduct.name;
+  const preview = $("#photo-preview");
+  preview.innerHTML = "";
+  const url = getPhotoUrl(currentProduct.photo);
+  if (url) {
+    const img = document.createElement("img");
+    img.src = url;
+    preview.append(img);
+  }
+  $("#form-photo").value = "";
+  setFormMode("view");
+  $("#form-overlay").hidden = false;
+}
+
+$("#btn-edit-form").addEventListener("click", () => {
+  if (formMode === "view") setFormMode("edit");
+  $("#form-name").focus();
+});
+
 $("#btn-cancel-form").addEventListener("click", () => {
-  $("#product-form").hidden = true;
-  pendingPhotoBlob = null;
-  scannedLocked = false;
+  $("#form-overlay").hidden = true;
+  currentProduct = null;
+  scanners.add.locked = false;
+  scanners.find.locked = false;
+});
+
+$("#btn-delete-form").addEventListener("click", async () => {
+  if (!currentProduct) return;
+  if (confirm(`Удалить «${currentProduct.name}»?`)) {
+    await dbDelete(currentProduct.id);
+    $("#form-overlay").hidden = true;
+    currentProduct = null;
+    showToast("Товар удалён");
+    renderProducts();
+  }
 });
 
 $("#form-photo").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   const preview = $("#photo-preview");
   preview.innerHTML = "";
-  if (!file) {
-    pendingPhotoBlob = null;
-    return;
-  }
-  pendingPhotoBlob = file;
+  if (!file) return;
   const img = document.createElement("img");
   img.src = URL.createObjectURL(file);
   preview.append(img);
@@ -245,26 +354,30 @@ $("#product-form").addEventListener("submit", async (e) => {
     showToast("Укажите название товара");
     return;
   }
+  const file = $("#form-photo").files && $("#form-photo").files[0];
 
-  const product = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-    barcode,
-    name,
-    photo: pendingPhotoBlob || null,
-    createdAt: Date.now(),
-  };
-
-  try {
+  if (formMode === "add") {
+    const product = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      barcode,
+      name,
+      photo: file || null,
+      createdAt: Date.now(),
+    };
     await dbAdd(product);
     showToast("Товар сохранён");
-    $("#product-form").hidden = true;
-    pendingPhotoBlob = null;
-    scannedLocked = false;
-    switchTab("products");
-  } catch (err) {
-    console.error(err);
-    showToast("Ошибка сохранения");
+  } else if (formMode === "edit" && currentProduct) {
+    currentProduct.name = name;
+    if (file) currentProduct.photo = file;
+    await dbAdd(currentProduct);
+    showToast("Изменения сохранены");
   }
+
+  $("#form-overlay").hidden = true;
+  currentProduct = null;
+  scanners.add.locked = false;
+  scanners.find.locked = false;
+  switchTab("products");
 });
 
 /* ===== Старт ===== */
