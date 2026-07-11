@@ -316,8 +316,6 @@ async function openFormView(id) {
 function closeModal() {
   $("#form-overlay").hidden = true;
   currentProduct = null;
-  scanners.add.locked = false;
-  scanners.find.locked = false;
 }
 
 $("#btn-edit-form").addEventListener("click", () => {
