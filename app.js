@@ -144,19 +144,22 @@ $("#search").addEventListener("input", renderProducts);
 /* ===== Сканер штрихкода ===== */
 let codeReader = null;
 let scanActive = false;
+let scannedLocked = false;
 
 async function startScan() {
   if (!window.ZXing) {
     showToast("Библиотека сканера не загрузилась (нужен интернет)");
     return;
   }
+  scannedLocked = false;
   try {
     codeReader = new ZXing.BrowserMultiFormatReader();
     await codeReader.decodeFromVideoDevice(
       undefined,
       $("#scanner-video"),
       (result, err, controls) => {
-        if (result) {
+        if (result && !scannedLocked) {
+          scannedLocked = true;
           const code = result.getText();
           stopScan();
           openProductForm(code);
@@ -204,9 +207,11 @@ let pendingPhotoBlob = null;
 
 function openProductForm(barcode) {
   $("#form-barcode").value = barcode;
-  $("#form-name").value = "";
-  pendingPhotoBlob = null;
-  $("#photo-preview").innerHTML = "";
+  if ($("#product-form").hidden) {
+    $("#form-name").value = "";
+    pendingPhotoBlob = null;
+    $("#photo-preview").innerHTML = "";
+  }
   $("#product-form").hidden = false;
   $("#form-name").focus();
   showToast("Штрихкод: " + barcode);
@@ -215,6 +220,7 @@ function openProductForm(barcode) {
 $("#btn-cancel-form").addEventListener("click", () => {
   $("#product-form").hidden = true;
   pendingPhotoBlob = null;
+  scannedLocked = false;
 });
 
 $("#form-photo").addEventListener("change", (e) => {
@@ -253,6 +259,7 @@ $("#product-form").addEventListener("submit", async (e) => {
     showToast("Товар сохранён");
     $("#product-form").hidden = true;
     pendingPhotoBlob = null;
+    scannedLocked = false;
     switchTab("products");
   } catch (err) {
     console.error(err);
