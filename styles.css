@@ -275,6 +275,11 @@ body {
   cursor: pointer;
 }
 .nav-btn .nav-icon { font-size: 18px; line-height: 1; }
+.nav-btn .nav-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
 .nav-btn.active { color: var(--primary); }
 
 /* Модальное окно товара */
@@ -371,6 +376,25 @@ body {
   flex-direction: column;
   gap: 12px;
   margin-top: 8px;
+}
+
+/* Блок лицензии */
+.license {
+  margin-top: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.license p { margin: 0 0 8px; }
+.license p:last-child { margin-bottom: 0; }
+.license-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 /* Вкладка «История выгрузки» */
