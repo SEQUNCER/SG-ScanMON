@@ -683,13 +683,13 @@ function pickBestLine(data) {
   let best = { text: "", conf: -1, length: 0 };
   for (const line of lines) {
     const text = String(line.text || "").trim();
-    if (text.length < 2) continue;
+    if (text.length < 1) continue;
     const hasCyrillic = /[А-Яа-яЁё]/.test(text);
     const hasLatin = /[A-Za-z]/.test(text);
     const hasDigit = /[0-9]/.test(text);
-    if (!hasCyrillic && !hasLatin) continue; // нужен хоть какой-то текст
+    if (!hasCyrillic && !hasLatin && !hasDigit) continue;
     const conf = line.conf || 0;
-    const score = conf * 0.7 + Math.min(text.length, 50) * 0.3;
+    const score = conf * 0.6 + Math.min(text.length, 60) * 0.4;
     if (score > best.conf) {
       best = { text, conf, length: text.length };
     }
@@ -722,20 +722,27 @@ async function captureNameShot() {
   try {
     const worker = await initOCRWorker();
     const result = await worker.recognize(processed);
-    console.log("[OCR] raw:", JSON.stringify(result.data.text?.slice(0, 200)));
+    const rawText = (result.data.text || "").replace(/\s+/g, " ").trim();
+    console.log("[OCR] raw:", JSON.stringify(rawText.slice(0, 300)));
+    console.log("[OCR] confidence:", result.data.confidence, "lines:", result.data.lines?.length);
+
+    // Показываем сырой текст для отладки
+    if (rawText) {
+      showToast("OCR: «" + rawText.slice(0, 60) + (rawText.length > 60 ? "…" : "") + "»");
+    } else {
+      showToast("OCR: пусто (confidence: " + (result.data.confidence || 0).toFixed(1) + "%)");
+    }
 
     const name = pickBestLine(result.data);
     if (name) {
       $("#form-name").value = name;
       showToast("Название: " + name);
+    } else if (rawText) {
+      // Фильтр не прошёл — даём пользователю решить
+      $("#form-name").value = rawText.slice(0, 100);
+      showToast("Текст в поле выше — отредактируйте при необходимости");
     } else {
-      const raw = (result.data.text || "").replace(/\s+/g, " ").trim().slice(0, 80);
-      if (raw) {
-        showToast("Распознано: «" + raw + "» — проверьте");
-        $("#form-name").value = raw;
-      } else {
-        showToast("Текст не найден — наведите ближе, лучше освещение");
-      }
+      showToast("Текст не найден — наведите ближе, лучше освещение, ровнее");
     }
   } catch (e) {
     console.error(e);
