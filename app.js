@@ -703,12 +703,28 @@ function pickProductName(data) {
   return { text: pool[0].text, conf: pool[0].conf };
 }
 
-async function createOCRWorker() {
-  return Tesseract.createWorker("rus", 1);
-}
-
-async function recognizePSM(worker, canvas) {
-  return worker.recognize(canvas);
+async function recognizeWithFallback(frames) {
+  // Источники языковых моделей. jsDelivr доступен в РФ; projectnaptha — запасной.
+  const langPaths = [
+    "https://cdn.jsdelivr.net/gh/naptha/tessdata@4.0.0",
+    "https://tessdata.projectnaptha.com/4.0.0",
+  ];
+  let lastErr = null;
+  for (const langPath of langPaths) {
+    let worker = null;
+    try {
+      worker = await Tesseract.createWorker("rus", 1, { langPath });
+      const results = [];
+      for (const f of frames) {
+        results.push(await worker.recognize(f));
+      }
+      return results;
+    } catch (e) {
+      lastErr = e;
+      if (worker) await worker.terminate().catch(() => {});
+    }
+  }
+  throw lastErr || new Error("OCR failed");
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -749,21 +765,18 @@ async function captureNameShot() {
       status.hidden = true;
       return;
     }
-    const worker = await createOCRWorker();
-    let best = { text: "", conf: -1, frame: null };
+    status.textContent = "Загрузка модели и распознавание…";
+    const results = await recognizeWithFallback(frames);
+    let best = { text: "", conf: -1 };
     let rawBest = "";
 
-    // Несколько кадров подряд — берём лучший по уверенности распознавания
-    for (const f of frames) {
-      const data = await recognizePSM(worker, f);
+    for (const data of results) {
       const cand = pickProductName(data);
       const conf = Math.max(data.confidence || 0, cand.conf || 0);
-      if (cand.text && conf > best.conf) best = { text: cand.text, conf, frame: f };
+      if (cand.text && conf > best.conf) best = { text: cand.text, conf };
       const raw = (data.text || "").replace(/\s+/g, " ").trim();
       if (raw && raw.length > rawBest.length) rawBest = raw;
     }
-
-    await worker.terminate();
 
     if (best.text) {
       $("#form-name").value = best.text;
