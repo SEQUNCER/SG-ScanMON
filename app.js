@@ -583,15 +583,16 @@ $("#product-form").addEventListener("submit", async (e) => {
   switchTab("products");
 });
 
-/* ===== Распознавание названия (OCR) ===== */
+/* ===== Распознавание названия (OCR) — упрощённое, рабочее ===== */
 let nameStream = null;
+let ocrWorker = null;
 
 async function openNameCapture() {
   const overlay = $("#name-capture-overlay");
   overlay.hidden = false;
   try {
     nameStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" },
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false,
     });
     const video = $("#name-video");
@@ -613,54 +614,36 @@ function closeNameCapture() {
   if (video) video.srcObject = null;
   $("#name-capture-overlay").hidden = true;
   $("#capture-status").hidden = true;
+  if (ocrWorker) {
+    ocrWorker.terminate().catch(() => {});
+    ocrWorker = null;
+  }
 }
 
-/* Предобработка: оттенки серого -> бокс-блюр -> локальная бинаризация -> увеличение.
-   Глобальный порог (Отсу) плохо работает на фото с тенями, поэтому локальный порог по окрестности. */
-function boxBlurGray(gray, w, h, r) {
-  const iw = w + 1;
-  const integral = new Int32Array((w + 1) * (h + 1));
-  for (let y = 0; y < h; y++) {
-    let rowSum = 0;
-    for (let x = 0; x < w; x++) {
-      rowSum += gray[y * w + x];
-      integral[(y + 1) * iw + (x + 1)] = integral[y * iw + (x + 1)] + rowSum;
-    }
+async function initOCRWorker() {
+  if (ocrWorker) return ocrWorker;
+  if (!window.Tesseract) {
+    throw new Error("Tesseract не загружен (нужен интернет)");
   }
-  const out = new Uint8ClampedArray(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const x0 = Math.max(0, x - r);
-      const x1 = Math.min(w - 1, x + r);
-      const y0 = Math.max(0, y - r);
-      const y1 = Math.min(h - 1, y + r);
-      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
-      const sum =
-        integral[(y1 + 1) * iw + (x1 + 1)] -
-        integral[(y1 + 1) * iw + x0] -
-        integral[y0 * iw + (x1 + 1)] +
-        integral[y0 * iw + x0];
-      out[y * w + x] = sum / area;
-    }
-  }
-  return out;
+  ocrWorker = await Tesseract.createWorker("rus", {
+    logger: (m) => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%"),
+  });
+  return ocrWorker;
 }
 
-/* Предобработка: увеличение + перевод в оттенки серого.
-   Возвращает НЕСКОЛЬКО вариантов кадра, чтобы выбрать лучший:
-   1) оттенки серого — Tesseract сам делает бинаризацию (надежно при разном свете);
-   2) мягкая локальная бинаризация с малым радиусом;
-   3) инвертированная бинаризация (для тёмных ценников со светлым текстом). */
-function buildCandidates(srcCanvas) {
+function preprocessFrame(video) {
   const scale = 3;
-  const w = Math.min(Math.round(srcCanvas.width * scale), 2400);
-  const h = Math.round((srcCanvas.height * w) / srcCanvas.width);
-  const base = document.createElement("canvas");
-  base.width = w;
-  base.height = h;
-  const bctx = base.getContext("2d");
-  bctx.drawImage(srcCanvas, 0, 0, w, h);
-  const img = bctx.getImageData(0, 0, w, h);
+  const maxW = 2400;
+  const w = Math.min(Math.round(video.videoWidth * scale), maxW);
+  const h = Math.round((video.videoHeight * w) / video.videoWidth);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, w, h);
+
+  const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
   const n = w * h;
   const gray = new Uint8ClampedArray(n);
@@ -669,106 +652,50 @@ function buildCandidates(srcCanvas) {
     gray[i] = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
   }
 
-  // Вариант 1: оттенки серого
-  const grayCanvas = document.createElement("canvas");
-  grayCanvas.width = w;
-  grayCanvas.height = h;
-  const gctx = grayCanvas.getContext("2d");
-  const gimg = gctx.createImageData(w, h);
+  // Простое увеличение контраста (ストレッチ)
+  let min = 255, max = 0;
   for (let i = 0; i < n; i++) {
-    const o = i * 4;
-    gimg.data[o] = gimg.data[o + 1] = gimg.data[o + 2] = gray[i];
-    gimg.data[o + 3] = 255;
+    if (gray[i] < min) min = gray[i];
+    if (gray[i] > max) max = gray[i];
   }
-  gctx.putImageData(gimg, 0, 0);
-
-  // Вариант 2: мягкая локальная бинаризация
-  const r = Math.max(3, Math.floor(Math.min(w, h) / 64));
-  const local = boxBlurGray(gray, w, h, r);
-  const binCanvas = document.createElement("canvas");
-  binCanvas.width = w;
-  binCanvas.height = h;
-  const bctx2 = binCanvas.getContext("2d");
-  const bimg = bctx2.createImageData(w, h);
-  const C = 12;
-  for (let i = 0; i < n; i++) {
-    const o = i * 4;
-    const v = gray[i] < local[i] - C ? 0 : 255;
-    bimg.data[o] = bimg.data[o + 1] = bimg.data[o + 2] = v;
-    bimg.data[o + 3] = 255;
-  }
-  bctx2.putImageData(bimg, 0, 0);
-
-  // Вариант 3: инвертированная бинаризация (светлый текст на тёмном)
-  const invCanvas = document.createElement("canvas");
-  invCanvas.width = w;
-  invCanvas.height = h;
-  const ictx = invCanvas.getContext("2d");
-  const iimg = ictx.createImageData(w, h);
-  for (let i = 0; i < n; i++) {
-    const o = i * 4;
-    const v = gray[i] > local[i] + C ? 0 : 255;
-    iimg.data[o] = iimg.data[o + 1] = iimg.data[o + 2] = v;
-    iimg.data[o + 3] = 255;
-  }
-  ictx.putImageData(iimg, 0, 0);
-
-  return [grayCanvas, binCanvas, invCanvas];
-}
-
-// Мягкий фильтр допустимых символов для пост-обработки.
-const OCR_ALLOWED = /[A-Za-zА-Яа-яЁё0-9]/;
-
-function pickProductName(data) {
-  let lines = [];
-  if (data.lines && data.lines.length) {
-    lines = data.lines.map((l) => (typeof l === "string" ? { text: l, conf: 0 } : l));
-  } else {
-    lines = (data.text || "").split("\n").map((t) => ({ text: t, conf: 0 }));
-  }
-  lines = lines
-    .map((l) => ({ text: String(l.text || "").trim(), conf: l.conf || 0 }))
-    .filter((l) => l.text.length >= 1)
-    .map((l) => ({ ...l, hasLetters: /[A-Za-zА-Яа-яЁё0-9]/.test(l.text) }));
-
-  if (!lines.length) return { text: "", conf: 0 };
-  const pool = lines.filter((l) => l.hasLetters).length
-    ? lines.filter((l) => l.hasLetters)
-    : lines;
-  pool.sort((a, b) => b.conf - a.conf || b.text.length - a.text.length);
-  return { text: pool[0].text, conf: pool[0].conf };
-}
-
-async function recognizeWithFallback(frames) {
-  let lastOCRSource = "";
-  const langPaths = [
-    "https://cdn.jsdelivr.net/gh/naptha/tessdata@4.0.0",
-    "https://tessdata.projectnaptha.com/4.0.0",
-    "/tessdata",
-  ];
-  let lastErr = null;
-  for (const langPath of langPaths) {
-    let worker = null;
-    try {
-      worker = await Tesseract.createWorker("rus", {
-        langPath,
-        logger: (m) => console.log("[Tesseract]", m.status, m.progress),
-      });
-      const results = [];
-      for (const f of frames) {
-        results.push(await worker.recognize(f));
-      }
-      lastOCRSource = langPath;
-      return { results, source: langPath };
-    } catch (e) {
-      lastErr = e;
-      if (worker) await worker.terminate().catch(() => {});
+  const range = max - min;
+  if (range > 30) {
+    for (let i = 0; i < n; i++) {
+      gray[i] = Math.min(255, Math.max(0, Math.round((gray[i] - min) * 255 / range)));
     }
   }
-  throw lastErr || new Error("OCR failed");
+
+  const out = ctx.createImageData(w, h);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    out.data[o] = out.data[o + 1] = out.data[o + 2] = gray[i];
+    out.data[o + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+  return canvas;
 }
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+function pickBestLine(data) {
+  const lines = (data.lines && data.lines.length)
+    ? data.lines.map(l => typeof l === "string" ? { text: l, conf: 0 } : l)
+    : (data.text || "").split("\n").map(t => ({ text: t, conf: 0 }));
+
+  let best = { text: "", conf: -1, length: 0 };
+  for (const line of lines) {
+    const text = String(line.text || "").trim();
+    if (text.length < 2) continue;
+    const hasCyrillic = /[А-Яа-яЁё]/.test(text);
+    const hasLatin = /[A-Za-z]/.test(text);
+    const hasDigit = /[0-9]/.test(text);
+    if (!hasCyrillic && !hasLatin) continue; // нужен хоть какой-то текст
+    const conf = line.conf || 0;
+    const score = conf * 0.7 + Math.min(text.length, 50) * 0.3;
+    if (score > best.conf) {
+      best = { text, conf, length: text.length };
+    }
+  }
+  return best.text;
+}
 
 async function captureNameShot() {
   const video = $("#name-video");
@@ -778,23 +705,10 @@ async function captureNameShot() {
   }
   const status = $("#capture-status");
   status.hidden = false;
-  status.textContent = "Съёмка нескольких кадров…";
+  status.textContent = "Съёмка кадра…";
 
-  // Снимаем 3 кадра с небольшим интервалом, пока камера жива.
-  const grayCands = [];
-  const binCands = [];
-  const invCands = [];
-  for (let i = 0; i < 3; i++) {
-    const raw = document.createElement("canvas");
-    raw.width = video.videoWidth;
-    raw.height = video.videoHeight;
-    raw.getContext("2d").drawImage(video, 0, 0);
-    const [g, b, inv] = buildCandidates(raw);
-    grayCands.push(g);
-    binCands.push(b);
-    invCands.push(inv);
-    if (i < 2) await delay(250);
-  }
+  // Один кадр — проще и быстрее
+  const processed = preprocessFrame(video);
 
   if (nameStream) {
     nameStream.getTracks().forEach((t) => t.stop());
@@ -803,56 +717,29 @@ async function captureNameShot() {
   video.srcObject = null;
   $("#name-capture-overlay").hidden = true;
 
-  status.textContent = "Распознавание текста…";
-
-  const pickBest = (results, acc) => {
-    for (const data of results) {
-      const cand = pickProductName(data);
-      const conf = Math.max(data.confidence || 0, cand.conf || 0);
-      if (cand.text && conf > acc.best.conf) acc.best = { text: cand.text, conf };
-      const raw = (data.text || "").replace(/\s+/g, " ").trim();
-      if (raw && raw.length > acc.rawBest.length) acc.rawBest = raw;
-    }
-  };
+  status.textContent = "Распознавание…";
 
   try {
-    if (!window.Tesseract) {
-      showToast("Библиотека OCR не загрузилась (нужен интернет)");
-      status.hidden = true;
-      return;
-    }
-    status.textContent = "Загрузка модели и распознавание…";
-    const acc = { best: { text: "", conf: -1 }, rawBest: "" };
-    // Этап 1: оттенки серого (Tesseract сам бинаризует) — надёжнее
-    const r1 = await recognizeWithFallback(grayCands);
-    pickBest(r1.results, acc);
-    let source = r1.source;
-    // Этап 2: если ничего не выбрано — пробуем бинаризованные
-    if (!acc.best.text) {
-      const r2 = await recognizeWithFallback(binCands);
-      pickBest(r2.results, acc);
-      source = r2.source;
-    }
-    // Этап 3: инвертированные (для тёмных ценников)
-    if (!acc.best.text) {
-      const r3 = await recognizeWithFallback(invCands);
-      pickBest(r3.results, acc);
-      source = r3.source;
-    }
+    const worker = await initOCRWorker();
+    const result = await worker.recognize(processed);
+    console.log("[OCR] raw:", JSON.stringify(result.data.text?.slice(0, 200)));
 
-    console.log("[OCR] source:", source, "| raw:", JSON.stringify(acc.rawBest));
-    if (acc.best.text) {
-      $("#form-name").value = acc.best.text;
-      showToast("Название считано");
-    } else if (acc.rawBest) {
-      showToast("OCR: «" + acc.rawBest.slice(0, 40) + "» — проверьте");
-      $("#form-name").value = acc.rawBest;
+    const name = pickBestLine(result.data);
+    if (name) {
+      $("#form-name").value = name;
+      showToast("Название: " + name);
     } else {
-      showToast("OCR пусто (модель: " + source.split("/").pop() + ")");
+      const raw = (result.data.text || "").replace(/\s+/g, " ").trim().slice(0, 80);
+      if (raw) {
+        showToast("Распознано: «" + raw + "» — проверьте");
+        $("#form-name").value = raw;
+      } else {
+        showToast("Текст не найден — наведите ближе, лучше освещение");
+      }
     }
   } catch (e) {
     console.error(e);
-    showToast("Ошибка OCR: " + (e && e.message ? e.message : e));
+    showToast("Ошибка OCR: " + (e?.message || e));
   }
   status.hidden = true;
 }
