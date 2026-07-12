@@ -65,6 +65,13 @@
       </div>
       <p id="find-message" class="empty-hint" hidden></p>
     </section>
+
+    <!-- Вкладка: Сроки годности -->
+    <section id="tab-expiry" class="tab-panel" hidden>
+      <p class="hint">Товары отсортированы по сроку годности — сначала те, что истекают скорее.</p>
+      <div id="expiry-list" class="expiry-list"></div>
+      <p id="empty-expiry" class="empty-hint" hidden>Нет товаров со сроком годности.</p>
+    </section>
   </main>
 
   <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
@@ -84,6 +91,41 @@
         <input id="form-photo" type="file" accept="image/*" capture="environment" />
         <div id="photo-preview" class="photo-preview"></div>
       </label>
+
+      <div class="expiry-block">
+        <label class="field">
+          <span>Срок годности</span>
+          <select id="form-expiry-mode">
+            <option value="">Не указывать</option>
+            <option value="range">Диапазон: с — по</option>
+            <option value="duration">От даты + срок (дни/месяцы)</option>
+          </select>
+        </label>
+        <div id="expiry-edit-fields">
+          <label class="field">
+            <span>Дата начала (выпуск)</span>
+            <input id="form-expiry-from" type="date" />
+          </label>
+          <label class="field" id="expiry-to-field">
+            <span>Годен до</span>
+            <input id="form-expiry-to" type="date" />
+          </label>
+          <div class="expiry-duration" id="expiry-duration-field">
+            <label class="field">
+              <span>Срок годности</span>
+              <input id="form-expiry-duration" type="number" min="1" inputmode="numeric" placeholder="Например: 30" />
+            </label>
+            <label class="field">
+              <span>Единица</span>
+              <select id="form-expiry-unit">
+                <option value="days">дней</option>
+                <option value="months">месяцев</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <p class="expiry-preview" id="expiry-preview"></p>
+      </div>
       <div class="form-actions view-actions">
         <button type="button" id="btn-edit-form" class="btn btn-primary">Редактировать</button>
         <button type="button" id="btn-delete-form" class="btn btn-danger">Удалить</button>
@@ -107,6 +149,10 @@
     <button class="nav-btn" data-tab="find">
       <span class="nav-icon">⌕</span>
       <span>Найти</span>
+    </button>
+    <button class="nav-btn" data-tab="expiry">
+      <span class="nav-icon">⏳</span>
+      <span>Сроки</span>
     </button>
   </nav>
 

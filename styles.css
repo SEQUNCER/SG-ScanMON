@@ -324,6 +324,82 @@ body {
 }
 .product-card { cursor: pointer; }
 
+/* Поля срока годности */
+.expiry-block {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.field select,
+.field input[type="date"],
+.field input[type="number"] {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+}
+.expiry-duration {
+  display: flex;
+  gap: 10px;
+}
+.expiry-duration .field { flex: 1; }
+.expiry-preview {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.card-expiry {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Статусы срока годности */
+.status-ok { color: #3fb950; }
+.status-soon { color: #d29922; }
+.status-expired { color: var(--danger); }
+
+/* Вкладка «Сроки годности» */
+.expiry-list { display: flex; flex-direction: column; gap: 10px; }
+.expiry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.expiry-row.status-ok { border-left-color: #3fb950; }
+.expiry-row.status-soon { border-left-color: #d29922; }
+.expiry-row.status-expired { border-left-color: var(--danger); }
+.expiry-info { min-width: 0; }
+.expiry-name {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.expiry-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.expiry-badge {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+.expiry-row.status-ok .expiry-badge { color: #3fb950; }
+.expiry-row.status-soon .expiry-badge { color: #d29922; }
+.expiry-row.status-expired .expiry-badge { color: var(--danger); }
+
 /* Toast */
 .toast {
   position: fixed;
