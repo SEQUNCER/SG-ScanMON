@@ -616,13 +616,11 @@ async function initOCRWorker() {
 }
 
 function preprocessFrame(video) {
-  const scale = 2, maxW = 1600;
-  const w = Math.min(Math.round(video.videoWidth * scale), maxW);
-  const h = Math.round(video.videoHeight * w / video.videoWidth);
+  const w = video.videoWidth, h = video.videoHeight;
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, w, h);
+  ctx.drawImage(video, 0, 0);
   const { data: d, width: w2, height: h2 } = ctx.getImageData(0, 0, w, h);
   const n = w2 * h2, gray = new Uint8ClampedArray(n);
   for (let i = 0; i < n; i++) gray[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2];
@@ -664,7 +662,9 @@ $("#btn-capture-shot").addEventListener("click", async () => {
   try {
     const { data } = await (await initOCRWorker()).recognize(processed);
     const raw = (data.text || "").replace(/\s+/g, " ").trim();
-    console.log("[OCR]", raw.slice(0, 200), "conf:", data.confidence);
+    console.log("[OCR] raw:", raw);
+    console.log("[OCR] lines:", data.lines?.map(l => l.text));
+    console.log("[OCR] confidence:", data.confidence);
     const name = pickBestLine(data);
     if (name) { $("#form-name").value = name; showToast("Название: " + name); }
     else if (raw) { $("#form-name").value = raw.slice(0, 120); showToast("Текст в поле — проверьте"); }
