@@ -704,21 +704,7 @@ function pickProductName(data) {
 }
 
 async function createOCRWorker() {
-  const langPaths = [
-    "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/4.0.0",
-    undefined,
-  ];
-  let lastErr = null;
-  for (const langPath of langPaths) {
-    try {
-      const opts = langPath ? { langPath } : {};
-      const worker = await Tesseract.createWorker("rus", 1, opts);
-      return worker;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr || new Error("OCR worker init failed");
+  return Tesseract.createWorker("rus", 1);
 }
 
 async function recognizePSM(worker, canvas) {
@@ -765,6 +751,7 @@ async function captureNameShot() {
     }
     const worker = await createOCRWorker();
     let best = { text: "", conf: -1, frame: null };
+    let rawBest = "";
 
     // Несколько кадров подряд — берём лучший по уверенности распознавания
     for (const f of frames) {
@@ -772,6 +759,8 @@ async function captureNameShot() {
       const cand = pickProductName(data);
       const conf = Math.max(data.confidence || 0, cand.conf || 0);
       if (cand.text && conf > best.conf) best = { text: cand.text, conf, frame: f };
+      const raw = (data.text || "").replace(/\s+/g, " ").trim();
+      if (raw && raw.length > rawBest.length) rawBest = raw;
     }
 
     await worker.terminate();
@@ -779,6 +768,9 @@ async function captureNameShot() {
     if (best.text) {
       $("#form-name").value = best.text;
       showToast("Название считано");
+    } else if (rawBest) {
+      showToast("Распознано: «" + rawBest.slice(0, 40) + "» — проверьте");
+      $("#form-name").value = rawBest;
     } else {
       showToast("Текст не распознан — введите вручную");
     }
