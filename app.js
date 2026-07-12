@@ -648,16 +648,22 @@ function boxBlurGray(gray, w, h, r) {
   return out;
 }
 
-function preprocess(srcCanvas) {
-  const scale = 3;
-  const w = Math.min(srcCanvas.width * scale, 2400);
+/* Предобработка: увеличение + перевод в оттенки серого.
+   Возвращает НЕСКОЛЬКО вариантов кадра, чтобы потом выбрать тот,
+   где Tesseract видит больше текста:
+   1) ч/б оттенки серого — Tesseract сам делает бинаризацию (надёжно
+      при разном освещении);
+   2) мягкая локальная бинаризация с небольшим радиусом. */
+function buildCandidates(srcCanvas) {
+  const scale = 2;
+  const w = Math.min(Math.round(srcCanvas.width * scale), 1800);
   const h = Math.round((srcCanvas.height * w) / srcCanvas.width);
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext("2d");
-  ctx.drawImage(srcCanvas, 0, 0, w, h);
-  const img = ctx.getImageData(0, 0, w, h);
+  const base = document.createElement("canvas");
+  base.width = w;
+  base.height = h;
+  const bctx = base.getContext("2d");
+  bctx.drawImage(srcCanvas, 0, 0, w, h);
+  const img = bctx.getImageData(0, 0, w, h);
   const d = img.data;
   const n = w * h;
   const gray = new Uint8ClampedArray(n);
@@ -665,17 +671,38 @@ function preprocess(srcCanvas) {
     const o = i * 4;
     gray[i] = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
   }
-  const r = Math.max(4, Math.floor(Math.min(w, h) / 32));
+
+  // Вариант 1: оттенки серого
+  const grayCanvas = document.createElement("canvas");
+  grayCanvas.width = w;
+  grayCanvas.height = h;
+  const gctx = grayCanvas.getContext("2d");
+  const gimg = gctx.createImageData(w, h);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    gimg.data[o] = gimg.data[o + 1] = gimg.data[o + 2] = gray[i];
+    gimg.data[o + 3] = 255;
+  }
+  gctx.putImageData(gimg, 0, 0);
+
+  // Вариант 2: мягкая локальная бинаризация (малый радиус, чтобы не «съесть» текст)
+  const r = Math.max(3, Math.floor(Math.min(w, h) / 64));
   const local = boxBlurGray(gray, w, h, r);
-  const C = 14; // запас для тёмного текста на светлом фоне
+  const binCanvas = document.createElement("canvas");
+  binCanvas.width = w;
+  binCanvas.height = h;
+  const bctx2 = binCanvas.getContext("2d");
+  const bimg = bctx2.createImageData(w, h);
+  const C = 12;
   for (let i = 0; i < n; i++) {
     const o = i * 4;
     const v = gray[i] < local[i] - C ? 0 : 255;
-    d[o] = d[o + 1] = d[o + 2] = v;
-    d[o + 3] = 255;
+    bimg.data[o] = bimg.data[o + 1] = bimg.data[o + 2] = v;
+    bimg.data[o + 3] = 255;
   }
-  ctx.putImageData(img, 0, 0);
-  return c;
+  bctx2.putImageData(bimg, 0, 0);
+
+  return [grayCanvas, binCanvas];
 }
 
 // Мягкий фильтр допустимых символов для пост-обработки (не блокирует вывод
@@ -705,6 +732,7 @@ function pickProductName(data) {
 
 async function recognizeWithFallback(frames) {
   // Источники языковых моделей. jsDelivr доступен в РФ; projectnaptha — запасной.
+  let lastOCRSource = "";
   const langPaths = [
     "https://cdn.jsdelivr.net/gh/naptha/tessdata@4.0.0",
     "https://tessdata.projectnaptha.com/4.0.0",
@@ -718,7 +746,8 @@ async function recognizeWithFallback(frames) {
       for (const f of frames) {
         results.push(await worker.recognize(f));
       }
-      return results;
+      lastOCRSource = langPath;
+      return { results, source: langPath };
     } catch (e) {
       lastErr = e;
       if (worker) await worker.terminate().catch(() => {});
@@ -739,14 +768,17 @@ async function captureNameShot() {
   status.hidden = false;
   status.textContent = "Съёмка нескольких кадров…";
 
-  // Снимаем 3 кадра с небольшим интервалом, пока камера жива
-  const frames = [];
+  // Снимаем 3 кадра с небольшим интервалом, пока камера жива.
+  const grayCands = [];
+  const binCands = [];
   for (let i = 0; i < 3; i++) {
     const raw = document.createElement("canvas");
     raw.width = video.videoWidth;
     raw.height = video.videoHeight;
     raw.getContext("2d").drawImage(video, 0, 0);
-    frames.push(preprocess(raw));
+    const [g, b] = buildCandidates(raw);
+    grayCands.push(g);
+    binCands.push(b);
     if (i < 2) await delay(250);
   }
 
@@ -759,6 +791,16 @@ async function captureNameShot() {
 
   status.textContent = "Распознавание текста…";
 
+  const pickBest = (results, acc) => {
+    for (const data of results) {
+      const cand = pickProductName(data);
+      const conf = Math.max(data.confidence || 0, cand.conf || 0);
+      if (cand.text && conf > acc.best.conf) acc.best = { text: cand.text, conf };
+      const raw = (data.text || "").replace(/\s+/g, " ").trim();
+      if (raw && raw.length > acc.rawBest.length) acc.rawBest = raw;
+    }
+  };
+
   try {
     if (!window.Tesseract) {
       showToast("Библиотека OCR не загрузилась (нужен интернет)");
@@ -766,30 +808,31 @@ async function captureNameShot() {
       return;
     }
     status.textContent = "Загрузка модели и распознавание…";
-    const results = await recognizeWithFallback(frames);
-    let best = { text: "", conf: -1 };
-    let rawBest = "";
-
-    for (const data of results) {
-      const cand = pickProductName(data);
-      const conf = Math.max(data.confidence || 0, cand.conf || 0);
-      if (cand.text && conf > best.conf) best = { text: cand.text, conf };
-      const raw = (data.text || "").replace(/\s+/g, " ").trim();
-      if (raw && raw.length > rawBest.length) rawBest = raw;
+    const acc = { best: { text: "", conf: -1 }, rawBest: "" };
+    // Этап 1: оттенки серого (Tesseract сам бинаризует) — надёжнее
+    const r1 = await recognizeWithFallback(grayCands);
+    pickBest(r1.results, acc);
+    let source = r1.source;
+    // Этап 2: если ничего не выбрано — пробуем бинаризованные варианты
+    if (!acc.best.text) {
+      const r2 = await recognizeWithFallback(binCands);
+      pickBest(r2.results, acc);
+      source = r2.source;
     }
 
-    if (best.text) {
-      $("#form-name").value = best.text;
+    console.log("[OCR] source:", source, "| raw:", JSON.stringify(acc.rawBest));
+    if (acc.best.text) {
+      $("#form-name").value = acc.best.text;
       showToast("Название считано");
-    } else if (rawBest) {
-      showToast("Распознано: «" + rawBest.slice(0, 40) + "» — проверьте");
-      $("#form-name").value = rawBest;
+    } else if (acc.rawBest) {
+      showToast("OCR: «" + acc.rawBest.slice(0, 40) + "» — проверьте");
+      $("#form-name").value = acc.rawBest;
     } else {
-      showToast("Текст не распознан — введите вручную");
+      showToast("OCR пусто (модель: " + source.split("/").pop() + ")");
     }
   } catch (e) {
     console.error(e);
-    showToast("Ошибка распознавания");
+    showToast("Ошибка OCR: " + (e && e.message ? e.message : e));
   }
   status.hidden = true;
 }
