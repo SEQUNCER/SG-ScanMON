@@ -583,7 +583,7 @@ $("#product-form").addEventListener("submit", async (e) => {
   switchTab("products");
 });
 
-/* ===== Распознавание названия (OCR) — упрощённое, рабочее ===== */
+/* ===== Распознавание названия (OCR) — минимально, работает ===== */
 let nameStream = null;
 let ocrWorker = null;
 
@@ -614,70 +614,41 @@ function closeNameCapture() {
   if (video) video.srcObject = null;
   $("#name-capture-overlay").hidden = true;
   $("#capture-status").hidden = true;
-  if (ocrWorker) {
-    ocrWorker.terminate().catch(() => {});
-    ocrWorker = null;
-  }
+  if (ocrWorker) { ocrWorker.terminate().catch(() => {}); ocrWorker = null; }
 }
 
 async function initOCRWorker() {
   if (ocrWorker) return ocrWorker;
-  if (!window.Tesseract) {
-    throw new Error("Tesseract не загружен (нужен интернет, проверьте консоль F12)");
-  }
+  if (!window.Tesseract) throw new Error("Tesseract не загружен (нужен интернет)");
   console.log("[OCR] Creating worker...");
-  try {
-    ocrWorker = await Tesseract.createWorker("rus", {
-      logger: (m) => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%"),
-    });
-    console.log("[OCR] Worker ready");
-    return ocrWorker;
-  } catch (e) {
-    console.error("[OCR] Worker creation failed:", e);
-    throw e;
-  }
+  ocrWorker = await Tesseract.createWorker("rus", {
+    logger: (m) => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%"),
+  });
+  console.log("[OCR] Worker ready");
+  return ocrWorker;
 }
 
 function preprocessFrame(video) {
-  const scale = 3;
-  const maxW = 2400;
+  const scale = 3, maxW = 2400;
   const w = Math.min(Math.round(video.videoWidth * scale), maxW);
   const h = Math.round((video.videoHeight * w) / video.videoWidth);
-
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d");
   ctx.drawImage(video, 0, 0, w, h);
-
   const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const n = w * h;
+  const d = img.data, n = w * h;
   const gray = new Uint8ClampedArray(n);
   for (let i = 0; i < n; i++) {
     const o = i * 4;
     gray[i] = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
   }
-
-  // Простое увеличение контраста (ストレッチ)
   let min = 255, max = 0;
-  for (let i = 0; i < n; i++) {
-    if (gray[i] < min) min = gray[i];
-    if (gray[i] > max) max = gray[i];
-  }
+  for (let i = 0; i < n; i++) { if (gray[i] < min) min = gray[i]; if (gray[i] > max) max = gray[i]; }
   const range = max - min;
-  if (range > 30) {
-    for (let i = 0; i < n; i++) {
-      gray[i] = Math.min(255, Math.max(0, Math.round((gray[i] - min) * 255 / range)));
-    }
-  }
-
+  if (range > 30) for (let i = 0; i < n; i++) gray[i] = Math.min(255, Math.max(0, Math.round((gray[i] - min) * 255 / range)));
   const out = ctx.createImageData(w, h);
-  for (let i = 0; i < n; i++) {
-    const o = i * 4;
-    out.data[o] = out.data[o + 1] = out.data[o + 2] = gray[i];
-    out.data[o + 3] = 255;
-  }
+  for (let i = 0; i < n; i++) { const o = i * 4; out.data[o] = out.data[o+1] = out.data[o+2] = gray[i]; out.data[o+3] = 255; }
   ctx.putImageData(out, 0, 0);
   return canvas;
 }
@@ -686,26 +657,42 @@ function pickBestLine(data) {
   const lines = (data.lines && data.lines.length)
     ? data.lines.map(l => typeof l === "string" ? { text: l, conf: 0 } : l)
     : (data.text || "").split("\n").map(t => ({ text: t, conf: 0 }));
-
-  let best = { text: "", conf: -1, length: 0 };
+  let best = { text: "", conf: -1 };
   for (const line of lines) {
     const text = String(line.text || "").trim();
-    if (text.length < 1) continue;
-    const hasCyrillic = /[А-Яа-яЁё]/.test(text);
-    const hasLatin = /[A-Za-z]/.test(text);
-    const hasDigit = /[0-9]/.test(text);
-    if (!hasCyrillic && !hasLatin && !hasDigit) continue;
+    if (text.length < 2) continue;
+    if (!/[A-Za-zА-Яа-яЁё0-9]/.test(text)) continue;
     const conf = line.conf || 0;
     const score = conf * 0.6 + Math.min(text.length, 60) * 0.4;
-    if (score > best.conf) {
-      best = { text, conf, length: text.length };
-    }
+    if (score > best.conf) best = { text, conf };
   }
   return best.text;
 }
 
+// Подключаем события ПОСЛЕ определения функций
 $("#btn-scan-name").addEventListener("click", openNameCapture);
 $("#btn-capture-cancel").addEventListener("click", closeNameCapture);
+$("#btn-capture-shot").addEventListener("click", async function captureNameShot() {
+  const video = $("#name-video");
+  if (!video.videoWidth) { showToast("Камера не готова"); return; }
+  const status = $("#capture-status");
+  status.hidden = false; status.textContent = "Снимок…";
+  const processed = preprocessFrame(video);
+  if (nameStream) { nameStream.getTracks().forEach(t=>t.stop()); nameStream=null; }
+  video.srcObject = null; $("#name-capture-overlay").hidden = true;
+  status.textContent = "Распознаю…";
+  try {
+    const worker = await initOCRWorker();
+    const { data } = await worker.recognize(processed);
+    const raw = (data.text || "").replace(/\s+/g," ").trim();
+    console.log("[OCR]", raw.slice(0,200), "conf:", data.confidence);
+    const name = pickBestLine(data);
+    if (name) { $("#form-name").value = name; showToast("Название: " + name); }
+    else if (raw) { $("#form-name").value = raw.slice(0,120); showToast("Текст в поле — проверьте"); }
+    else { showToast("Текст не найден — ближе, ровнее, светлее"); }
+  } catch(e) { console.error(e); showToast("Ошибка OCR: "+(e?.message||e)); }
+  status.hidden = true;
+});
 
 /* ===== Вкладка «Сроки годности» ===== */
 async function renderExpiry() {
