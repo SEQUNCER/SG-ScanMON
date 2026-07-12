@@ -678,10 +678,9 @@ function preprocess(srcCanvas) {
   return c;
 }
 
-const OCR_WHITELIST =
-  "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя" +
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" +
-  "0123456789.,-/:() ";
+// Мягкий фильтр допустимых символов для пост-обработки (не блокирует вывод
+// движка, а лишь отсекает заведомо лишние знаки при выборе строки).
+const OCR_ALLOWED = /[A-Za-zА-Яа-яЁё0-9]/;
 
 function pickProductName(data) {
   let lines = [];
@@ -722,11 +721,7 @@ async function createOCRWorker() {
   throw lastErr || new Error("OCR worker init failed");
 }
 
-async function recognizePSM(worker, canvas, psm) {
-  await worker.setParameters({
-    tessedit_pageseg_mode: psm,
-    tessedit_char_whitelist: OCR_WHITELIST,
-  });
+async function recognizePSM(worker, canvas) {
   return worker.recognize(canvas);
 }
 
@@ -771,20 +766,12 @@ async function captureNameShot() {
     const worker = await createOCRWorker();
     let best = { text: "", conf: -1, frame: null };
 
-    // Каждый кадр распознаём в режиме PSM 6, берём лучший по уверенности
+    // Несколько кадров подряд — берём лучший по уверенности распознавания
     for (const f of frames) {
-      const data = await recognizePSM(worker, f, 6);
+      const data = await recognizePSM(worker, f);
       const cand = pickProductName(data);
       const conf = Math.max(data.confidence || 0, cand.conf || 0);
       if (cand.text && conf > best.conf) best = { text: cand.text, conf, frame: f };
-    }
-
-    // На лучшем кадре пробуем также PSM 4 (один столбец текста)
-    if (best.frame) {
-      const data4 = await recognizePSM(worker, best.frame, 4);
-      const cand4 = pickProductName(data4);
-      const conf4 = Math.max(data4.confidence || 0, cand4.conf || 0);
-      if (cand4.text && conf4 > best.conf) best = { text: cand4.text, conf: conf4 };
     }
 
     await worker.terminate();
