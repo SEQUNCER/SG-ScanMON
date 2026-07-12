@@ -716,7 +716,6 @@ $("#btn-capture-shot").addEventListener("click", async () => {
   nameStream?.getTracks().forEach(t => t.stop());
   nameStream = null;
   video.srcObject = null;
-  $("#name-capture-overlay").hidden = true;
   status.textContent = "Распознаю…";
   try {
     const worker = await initOCRWorker();
@@ -736,6 +735,7 @@ $("#btn-capture-shot").addEventListener("click", async () => {
     if (best.text) { $("#form-name").value = best.text; showToast("Название: " + best.text); }
     else showToast("Текст не найден — ближе, ровнее, светлее, без бликов");
   } catch (e) { console.error(e); showToast("Ошибка OCR: " + (e?.message || e)); }
+  $("#name-capture-overlay").hidden = true;
   status.hidden = true;
 });
 
