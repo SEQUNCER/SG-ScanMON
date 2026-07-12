@@ -749,96 +749,10 @@ async function captureNameShot() {
   }
   status.hidden = true;
 }
-  const status = $("#capture-status");
-  status.hidden = false;
-  status.textContent = "Съёмка кадра…";
-
-  // Один кадр — проще и быстрее
-  const processed = preprocessFrame(video);
-
-  if (nameStream) {
-    nameStream.getTracks().forEach((t) => t.stop());
-    nameStream = null;
-  }
-  video.srcObject = null;
-  $("#name-capture-overlay").hidden = true;
-
-  status.textContent = "Распознавание…";
-
-  try {
-    const worker = await initOCRWorker();
-    const result = await worker.recognize(processed);
-    const rawText = (result.data.text || "").replace(/\s+/g, " ").trim();
-    console.log("[OCR] raw:", JSON.stringify(rawText.slice(0, 300)));
-    console.log("[OCR] confidence:", result.data.confidence, "lines:", result.data.lines?.length);
-
-    // Показываем сырой текст для отладки
-    if (rawText) {
-      showToast("OCR: «" + rawText.slice(0, 60) + (rawText.length > 60 ? "…" : "") + "»");
-    } else {
-      showToast("OCR: пусто (confidence: " + (result.data.confidence || 0).toFixed(1) + "%)");
-    }
-
-    const name = pickBestLine(result.data);
-    if (name) {
-      $("#form-name").value = name;
-      showToast("Название: " + name);
-    } else if (rawText) {
-      // Фильтр не прошёл — даём пользователю решить
-      $("#form-name").value = rawText.slice(0, 100);
-      showToast("Текст в поле выше — отредактируйте при необходимости");
-    } else {
-      showToast("Текст не найден — наведите ближе, лучше освещение, ровнее");
-    }
-  } catch (e) {
-    console.error(e);
-    showToast("Ошибка OCR: " + (e?.message || e));
-  }
-  status.hidden = true;
-}
 
 $("#btn-scan-name").addEventListener("click", openNameCapture);
 $("#btn-capture-shot").addEventListener("click", captureNameShot);
 $("#btn-capture-cancel").addEventListener("click", closeNameCapture);
-
-/* ===== Отладка: тест OCR без камеры (файл/URL) ===== */
-const dbgBtn = document.createElement("button");
-dbgBtn.textContent = "🔧 Тест OCR (файл)";
-dbgBtn.className = "btn";
-dbgBtn.style.marginTop = "8px";
-dbgBtn.style.fontSize = "12px";
-dbgBtn.addEventListener("click", async () => {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = async () => {
-      try {
-        const worker = await initOCRWorker();
-        const result = await worker.recognize(img);
-        const raw = (result.data.text || "").replace(/\s+/g, " ").trim();
-        console.log("[OCR TEST] raw:", raw);
-        console.log("[OCR TEST] conf:", result.data.confidence);
-        showToast("OCR: " + raw.slice(0, 80));
-        alert("OCR результат:\n\n" + raw);
-      } catch (err) {
-        console.error(err);
-        showToast("Ошибка теста: " + err.message);
-        alert("Ошибка: " + err.message);
-      }
-    };
-    img.src = url;
-  };
-  input.click();
-});
-const captureBox = document.querySelector("#name-capture-overlay .capture-box");
-if (captureBox) {
-  captureBox.appendChild(dbgBtn);
-}
 
 /* ===== Вкладка «Сроки годности» ===== */
 async function renderExpiry() {
