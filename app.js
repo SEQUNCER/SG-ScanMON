@@ -615,38 +615,42 @@ function closeNameCapture() {
   $("#capture-status").hidden = true;
 }
 
-/* Предобработка: оттенки серого -> бинаризация по Отсу -> увеличение.
-   Это сильно повышает точность Tesseract на ценниках. */
-function otsuThreshold(gray, n) {
-  const hist = new Array(256).fill(0);
-  for (let i = 0; i < n; i++) hist[gray[i]]++;
-  let total = n;
-  let sum = 0;
-  for (let t = 0; t < 256; t++) sum += t * hist[t];
-  let sumB = 0;
-  let wB = 0;
-  let maxVar = 0;
-  let threshold = 127;
-  for (let t = 0; t < 256; t++) {
-    wB += hist[t];
-    if (wB === 0) continue;
-    const wF = total - wB;
-    if (wF === 0) break;
-    sumB += t * hist[t];
-    const mB = sumB / wB;
-    const mF = (sum - sumB) / wF;
-    const between = wB * wF * (mB - mF) * (mB - mF);
-    if (between > maxVar) {
-      maxVar = between;
-      threshold = t;
+/* Предобработка: оттенки серого -> лёгкое размытие -> адаптивная
+   (локальная) бинаризация -> увеличение.
+   Глобальный порог (Отсу) плохо работает на фото с тенями и перепадами
+   яркости, поэтому используем локальный порог по окрестности каждого пикселя. */
+function boxBlurGray(gray, w, h, r) {
+  const iw = w + 1;
+  const integral = new Int32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < w; x++) {
+      rowSum += gray[y * w + x];
+      integral[(y + 1) * iw + (x + 1)] = integral[y * iw + (x + 1)] + rowSum;
     }
   }
-  return threshold;
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(w - 1, x + r);
+      const y0 = Math.max(0, y - r);
+      const y1 = Math.min(h - 1, y + r);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum =
+        integral[(y1 + 1) * iw + (x1 + 1)] -
+        integral[(y1 + 1) * iw + x0] -
+        integral[y0 * iw + (x1 + 1)] +
+        integral[y0 * iw + x0];
+      out[y * w + x] = sum / area;
+    }
+  }
+  return out;
 }
 
 function preprocess(srcCanvas) {
-  const scale = 2;
-  const w = Math.min(srcCanvas.width * scale, 2000);
+  const scale = 3;
+  const w = Math.min(srcCanvas.width * scale, 2400);
   const h = Math.round((srcCanvas.height * w) / srcCanvas.width);
   const c = document.createElement("canvas");
   c.width = w;
@@ -661,10 +665,12 @@ function preprocess(srcCanvas) {
     const o = i * 4;
     gray[i] = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
   }
-  const thr = otsuThreshold(gray, n);
+  const r = Math.max(4, Math.floor(Math.min(w, h) / 32));
+  const local = boxBlurGray(gray, w, h, r);
+  const C = 14; // запас для тёмного текста на светлом фоне
   for (let i = 0; i < n; i++) {
     const o = i * 4;
-    const v = gray[i] > thr ? 255 : 0;
+    const v = gray[i] < local[i] - C ? 0 : 255;
     d[o] = d[o + 1] = d[o + 2] = v;
     d[o + 3] = 255;
   }
@@ -699,10 +705,34 @@ function pickProductName(data) {
 }
 
 async function ocrImage(canvas, status) {
-  const worker = await Tesseract.createWorker("rus", 1, {
-    tessedit_pageseg_mode: 6,
-    tessedit_char_whitelist: OCR_WHITELIST,
-  });
+  // Модель повышенного качества (tessdata_best); при сбое — стандартная.
+  const langPaths = [
+    "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/4.0.0",
+    undefined,
+  ];
+  let worker = null;
+  let lastErr = null;
+  for (const langPath of langPaths) {
+    try {
+      const opts = langPath ? { langPath } : {};
+      worker = await Tesseract.createWorker("rus", 1, opts);
+      await worker.setParameters({
+        tessedit_pageseg_mode: 6,
+        tessedit_char_whitelist: OCR_WHITELIST,
+      });
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (worker) {
+        await worker.terminate().catch(() => {});
+        worker = null;
+      }
+    }
+  }
+  if (!worker) {
+    if (status) status.hidden = true;
+    throw lastErr || new Error("OCR worker init failed");
+  }
   try {
     const { data } = await worker.recognize(canvas);
     return data;
