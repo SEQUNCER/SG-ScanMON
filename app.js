@@ -695,51 +695,42 @@ function pickProductName(data) {
     .filter((l) => l.text.length >= 2)
     .map((l) => ({ ...l, hasLetters: /[A-Za-zА-Яа-яЁё]/.test(l.text) }));
 
-  if (!lines.length) return "";
+  if (!lines.length) return { text: "", conf: 0 };
   const pool = lines.filter((l) => l.hasLetters).length
     ? lines.filter((l) => l.hasLetters)
     : lines;
-  // лучшее по длине, при равенстве — по уверенности
-  pool.sort((a, b) => b.text.length - a.text.length || b.conf - a.conf);
-  return pool[0].text;
+  // лучшее по уверенности, при равенстве — по длине
+  pool.sort((a, b) => b.conf - a.conf || b.text.length - a.text.length);
+  return { text: pool[0].text, conf: pool[0].conf };
 }
 
-async function ocrImage(canvas, status) {
-  // Модель повышенного качества (tessdata_best); при сбое — стандартная.
+async function createOCRWorker() {
   const langPaths = [
     "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/4.0.0",
     undefined,
   ];
-  let worker = null;
   let lastErr = null;
   for (const langPath of langPaths) {
     try {
       const opts = langPath ? { langPath } : {};
-      worker = await Tesseract.createWorker("rus", 1, opts);
-      await worker.setParameters({
-        tessedit_pageseg_mode: 6,
-        tessedit_char_whitelist: OCR_WHITELIST,
-      });
-      break;
+      const worker = await Tesseract.createWorker("rus", 1, opts);
+      return worker;
     } catch (e) {
       lastErr = e;
-      if (worker) {
-        await worker.terminate().catch(() => {});
-        worker = null;
-      }
     }
   }
-  if (!worker) {
-    if (status) status.hidden = true;
-    throw lastErr || new Error("OCR worker init failed");
-  }
-  try {
-    const { data } = await worker.recognize(canvas);
-    return data;
-  } finally {
-    await worker.terminate();
-  }
+  throw lastErr || new Error("OCR worker init failed");
 }
+
+async function recognizePSM(worker, canvas, psm) {
+  await worker.setParameters({
+    tessedit_pageseg_mode: psm,
+    tessedit_char_whitelist: OCR_WHITELIST,
+  });
+  return worker.recognize(canvas);
+}
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function captureNameShot() {
   const video = $("#name-video");
@@ -747,10 +738,20 @@ async function captureNameShot() {
     showToast("Камера ещё не готова");
     return;
   }
-  const raw = document.createElement("canvas");
-  raw.width = video.videoWidth;
-  raw.height = video.videoHeight;
-  raw.getContext("2d").drawImage(video, 0, 0);
+  const status = $("#capture-status");
+  status.hidden = false;
+  status.textContent = "Съёмка нескольких кадров…";
+
+  // Снимаем 3 кадра с небольшим интервалом, пока камера жива
+  const frames = [];
+  for (let i = 0; i < 3; i++) {
+    const raw = document.createElement("canvas");
+    raw.width = video.videoWidth;
+    raw.height = video.videoHeight;
+    raw.getContext("2d").drawImage(video, 0, 0);
+    frames.push(preprocess(raw));
+    if (i < 2) await delay(250);
+  }
 
   if (nameStream) {
     nameStream.getTracks().forEach((t) => t.stop());
@@ -759,8 +760,6 @@ async function captureNameShot() {
   video.srcObject = null;
   $("#name-capture-overlay").hidden = true;
 
-  const status = $("#capture-status");
-  status.hidden = false;
   status.textContent = "Распознавание текста…";
 
   try {
@@ -769,11 +768,29 @@ async function captureNameShot() {
       status.hidden = true;
       return;
     }
-    const processed = preprocess(raw);
-    const data = await ocrImage(processed, status);
-    const name = pickProductName(data);
-    if (name) {
-      $("#form-name").value = name;
+    const worker = await createOCRWorker();
+    let best = { text: "", conf: -1, frame: null };
+
+    // Каждый кадр распознаём в режиме PSM 6, берём лучший по уверенности
+    for (const f of frames) {
+      const data = await recognizePSM(worker, f, 6);
+      const cand = pickProductName(data);
+      const conf = Math.max(data.confidence || 0, cand.conf || 0);
+      if (cand.text && conf > best.conf) best = { text: cand.text, conf, frame: f };
+    }
+
+    // На лучшем кадре пробуем также PSM 4 (один столбец текста)
+    if (best.frame) {
+      const data4 = await recognizePSM(worker, best.frame, 4);
+      const cand4 = pickProductName(data4);
+      const conf4 = Math.max(data4.confidence || 0, cand4.conf || 0);
+      if (cand4.text && conf4 > best.conf) best = { text: cand4.text, conf: conf4 };
+    }
+
+    await worker.terminate();
+
+    if (best.text) {
+      $("#form-name").value = best.text;
       showToast("Название считано");
     } else {
       showToast("Текст не распознан — введите вручную");
