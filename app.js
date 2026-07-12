@@ -583,114 +583,93 @@ $("#product-form").addEventListener("submit", async (e) => {
   switchTab("products");
 });
 
-/* ===== Распознавание названия (OCR) — минимально, работает ===== */
-let nameStream = null;
-let ocrWorker = null;
+/* ===== Распознавание названия (OCR) — компактное ===== */
+let nameStream = null, ocrWorker = null;
 
 async function openNameCapture() {
   const overlay = $("#name-capture-overlay");
   overlay.hidden = false;
   try {
-    nameStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false,
-    });
+    nameStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     const video = $("#name-video");
     video.srcObject = nameStream;
     await video.play();
-  } catch (e) {
-    console.error(e);
-    showToast("Нет доступа к камере");
-    closeNameCapture();
-  }
+  } catch (e) { console.error(e); showToast("Нет доступа к камере"); closeNameCapture(); }
 }
 
 function closeNameCapture() {
-  if (nameStream) {
-    nameStream.getTracks().forEach((t) => t.stop());
-    nameStream = null;
-  }
+  nameStream?.getTracks().forEach(t => t.stop());
+  nameStream = null;
   const video = $("#name-video");
   if (video) video.srcObject = null;
   $("#name-capture-overlay").hidden = true;
   $("#capture-status").hidden = true;
-  if (ocrWorker) { ocrWorker.terminate().catch(() => {}); ocrWorker = null; }
+  ocrWorker?.terminate().catch(() => {});
+  ocrWorker = null;
 }
 
 async function initOCRWorker() {
   if (ocrWorker) return ocrWorker;
-  if (!window.Tesseract) throw new Error("Tesseract не загружен (нужен интернет)");
-  console.log("[OCR] Creating worker...");
-  ocrWorker = await Tesseract.createWorker("rus", {
-    logger: (m) => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%"),
-  });
-  console.log("[OCR] Worker ready");
+  if (!window.Tesseract) throw new Error("Tesseract не загружен");
+  ocrWorker = await Tesseract.createWorker("rus", { logger: m => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%") });
   return ocrWorker;
 }
 
 function preprocessFrame(video) {
   const scale = 3, maxW = 2400;
   const w = Math.min(Math.round(video.videoWidth * scale), maxW);
-  const h = Math.round((video.videoHeight * w) / video.videoWidth);
+  const h = Math.round(video.videoHeight * w / video.videoWidth);
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d");
   ctx.drawImage(video, 0, 0, w, h);
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data, n = w * h;
-  const gray = new Uint8ClampedArray(n);
-  for (let i = 0; i < n; i++) {
-    const o = i * 4;
-    gray[i] = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
-  }
+  const { data: d, width: w2, height: h2 } = ctx.getImageData(0, 0, w, h);
+  const n = w2 * h2, gray = new Uint8ClampedArray(n);
+  for (let i = 0; i < n; i++) gray[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2];
   let min = 255, max = 0;
   for (let i = 0; i < n; i++) { if (gray[i] < min) min = gray[i]; if (gray[i] > max) max = gray[i]; }
   const range = max - min;
   if (range > 30) for (let i = 0; i < n; i++) gray[i] = Math.min(255, Math.max(0, Math.round((gray[i] - min) * 255 / range)));
-  const out = ctx.createImageData(w, h);
-  for (let i = 0; i < n; i++) { const o = i * 4; out.data[o] = out.data[o+1] = out.data[o+2] = gray[i]; out.data[o+3] = 255; }
+  const out = ctx.createImageData(w2, h2);
+  for (let i = 0; i < n; i++) { const o = i*4; out.data[o] = out.data[o+1] = out.data[o+2] = gray[i]; out.data[o+3] = 255; }
   ctx.putImageData(out, 0, 0);
   return canvas;
 }
 
 function pickBestLine(data) {
-  const lines = (data.lines && data.lines.length)
-    ? data.lines.map(l => typeof l === "string" ? { text: l, conf: 0 } : l)
-    : (data.text || "").split("\n").map(t => ({ text: t, conf: 0 }));
-  let best = { text: "", conf: -1 };
+  const lines = data.lines?.length ? data.lines.map(l => typeof l === "string" ? { text: l, conf: 0 } : l) : (data.text || "").split("\n").map(t => ({ text: t, conf: 0 }));
+  let best = "", bestScore = -1;
   for (const line of lines) {
     const text = String(line.text || "").trim();
-    if (text.length < 2) continue;
-    if (!/[A-Za-zА-Яа-яЁё0-9]/.test(text)) continue;
-    const conf = line.conf || 0;
-    const score = conf * 0.6 + Math.min(text.length, 60) * 0.4;
-    if (score > best.conf) best = { text, conf };
+    if (text.length < 2 || !/[A-Za-zА-Яа-яЁё0-9]/.test(text)) continue;
+    const score = (line.conf || 0) * 0.6 + Math.min(text.length, 60) * 0.4;
+    if (score > bestScore) { bestScore = score; best = text; }
   }
-  return best.text;
+  return best;
 }
 
-// Подключаем события ПОСЛЕ определения функций
 $("#btn-scan-name").addEventListener("click", openNameCapture);
 $("#btn-capture-cancel").addEventListener("click", closeNameCapture);
-$("#btn-capture-shot").addEventListener("click", async function captureNameShot() {
+$("#btn-capture-shot").addEventListener("click", async () => {
   const video = $("#name-video");
-  if (!video.videoWidth) { showToast("Камера не готова"); return; }
+  if (!video.videoWidth) return showToast("Камера не готова");
   const status = $("#capture-status");
   status.hidden = false; status.textContent = "Снимок…";
   const processed = preprocessFrame(video);
-  if (nameStream) { nameStream.getTracks().forEach(t=>t.stop()); nameStream=null; }
-  video.srcObject = null; $("#name-capture-overlay").hidden = true;
+  nameStream?.getTracks().forEach(t => t.stop());
+  nameStream = null;
+  video.srcObject = null;
+  $("#name-capture-overlay").hidden = true;
   status.textContent = "Распознаю…";
   try {
-    const worker = await initOCRWorker();
-    const { data } = await worker.recognize(processed);
-    const raw = (data.text || "").replace(/\s+/g," ").trim();
-    console.log("[OCR]", raw.slice(0,200), "conf:", data.confidence);
+    const { data } = await (await initOCRWorker()).recognize(processed);
+    const raw = (data.text || "").replace(/\s+/g, " ").trim();
+    console.log("[OCR]", raw.slice(0, 200), "conf:", data.confidence);
     const name = pickBestLine(data);
     if (name) { $("#form-name").value = name; showToast("Название: " + name); }
-    else if (raw) { $("#form-name").value = raw.slice(0,120); showToast("Текст в поле — проверьте"); }
-    else { showToast("Текст не найден — ближе, ровнее, светлее"); }
-  } catch(e) { console.error(e); showToast("Ошибка OCR: "+(e?.message||e)); }
+    else if (raw) { $("#form-name").value = raw.slice(0, 120); showToast("Текст в поле — проверьте"); }
+    else showToast("Текст не найден — ближе, ровнее, светлее");
+  } catch (e) { console.error(e); showToast("Ошибка OCR: " + (e?.message || e)); }
   status.hidden = true;
 });
 
