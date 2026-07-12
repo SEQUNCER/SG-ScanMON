@@ -459,6 +459,37 @@ body {
 .expiry-row.status-soon .expiry-badge { color: #d29922; }
 .expiry-row.status-expired .expiry-badge { color: var(--danger); }
 
+/* Строка названия с кнопкой-камерой */
+.name-row { display: flex; gap: 8px; align-items: stretch; }
+.name-row input { flex: 1; min-width: 0; }
+.icon-btn {
+  flex: 0 0 auto;
+  width: 46px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.icon-btn svg { width: 22px; height: 22px; }
+
+/* Оверлей захвата фото (OCR названия) */
+.capture-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 60;
+}
+.capture-box { width: 100%; max-width: 420px; }
+.capture-box .manual-row { margin-top: 12px; }
+
 /* Toast */
 .toast {
   position: fixed;

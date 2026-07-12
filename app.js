@@ -384,6 +384,7 @@ function setFormMode(mode) {
   const form = $("#product-form");
   form.classList.toggle("mode-view", mode === "view");
   form.classList.toggle("mode-edit", mode === "edit" || mode === "add");
+  $("#btn-scan-name").hidden = mode === "view";
 }
 
 function openFormAdd(barcode) {
@@ -581,6 +582,100 @@ $("#product-form").addEventListener("submit", async (e) => {
   closeModal();
   switchTab("products");
 });
+
+/* ===== Распознавание названия (OCR) ===== */
+let nameStream = null;
+
+async function openNameCapture() {
+  const overlay = $("#name-capture-overlay");
+  overlay.hidden = false;
+  try {
+    nameStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false,
+    });
+    const video = $("#name-video");
+    video.srcObject = nameStream;
+    await video.play();
+  } catch (e) {
+    console.error(e);
+    showToast("Нет доступа к камере");
+    closeNameCapture();
+  }
+}
+
+function closeNameCapture() {
+  if (nameStream) {
+    nameStream.getTracks().forEach((t) => t.stop());
+    nameStream = null;
+  }
+  const video = $("#name-video");
+  if (video) video.srcObject = null;
+  $("#name-capture-overlay").hidden = true;
+  $("#capture-status").hidden = true;
+}
+
+function pickProductName(data) {
+  let lines = [];
+  if (data.lines && data.lines.length) {
+    lines = data.lines.map((l) => (typeof l === "string" ? l : l.text || ""));
+  } else {
+    lines = (data.text || "").split("\n");
+  }
+  lines = lines.map((s) => String(s).trim()).filter(Boolean);
+  const withLetters = lines.filter((l) => /[A-Za-zА-Яа-яЁё]/.test(l));
+  const pool = withLetters.length ? withLetters : lines;
+  if (!pool.length) return "";
+  pool.sort((a, b) => b.length - a.length);
+  return pool[0];
+}
+
+async function captureNameShot() {
+  const video = $("#name-video");
+  if (!video.videoWidth) {
+    showToast("Камера ещё не готова");
+    return;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+
+  if (nameStream) {
+    nameStream.getTracks().forEach((t) => t.stop());
+    nameStream = null;
+  }
+  video.srcObject = null;
+  $("#name-capture-overlay").hidden = true;
+
+  const status = $("#capture-status");
+  status.hidden = false;
+  status.textContent = "Распознавание текста…";
+
+  try {
+    if (!window.Tesseract) {
+      showToast("Библиотека OCR не загрузилась (нужен интернет)");
+      status.hidden = true;
+      return;
+    }
+    const { data } = await Tesseract.recognize(canvas, "rus");
+    const name = pickProductName(data);
+    if (name) {
+      $("#form-name").value = name;
+      showToast("Название считано");
+    } else {
+      showToast("Текст не распознан — введите вручную");
+    }
+  } catch (e) {
+    console.error(e);
+    showToast("Ошибка распознавания");
+  }
+  status.hidden = true;
+}
+
+$("#btn-scan-name").addEventListener("click", openNameCapture);
+$("#btn-capture-shot").addEventListener("click", captureNameShot);
+$("#btn-capture-cancel").addEventListener("click", closeNameCapture);
 
 /* ===== Вкладка «Сроки годности» ===== */
 async function renderExpiry() {
