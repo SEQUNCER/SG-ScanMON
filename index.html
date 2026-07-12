@@ -72,6 +72,17 @@
       <div id="expiry-list" class="expiry-list"></div>
       <p id="empty-expiry" class="empty-hint" hidden>Нет товаров со сроком годности.</p>
     </section>
+
+    <!-- Вкладка: Выгрузка -->
+    <section id="tab-backup" class="tab-panel" hidden>
+      <p class="hint">Сохраните все данные (включая фото) в файл или восстановите из ранее сохранённого.</p>
+      <div class="backup-actions">
+        <button id="btn-export" class="btn btn-primary">Выгрузить отчёт</button>
+        <button id="btn-import" class="btn">Загрузить данные</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden />
+      </div>
+      <p id="backup-message" class="empty-hint" hidden></p>
+    </section>
   </main>
 
   <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
@@ -153,6 +164,10 @@
     <button class="nav-btn" data-tab="expiry">
       <span class="nav-icon">⏳</span>
       <span>Сроки</span>
+    </button>
+    <button class="nav-btn" data-tab="backup">
+      <span class="nav-icon">⇩</span>
+      <span>Выгрузка</span>
     </button>
   </nav>
 

@@ -364,6 +364,14 @@ body {
 
 /* Вкладка «Сроки годности» */
 .expiry-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* Вкладка «Выгрузка» */
+.backup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
 .expiry-row {
   display: flex;
   align-items: center;

@@ -139,6 +139,10 @@ function switchTab(name) {
   }
   if (name === "products") renderProducts();
   if (name === "expiry") renderExpiry();
+  if (name === "backup") {
+    $("#backup-message").hidden = true;
+    $("#import-file").value = "";
+  }
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -590,6 +594,92 @@ async function renderExpiry() {
     list.append(row);
   }
 }
+
+/* ===== Выгрузка / Загрузка данных ===== */
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    if (!blob) return resolve(null);
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function dataURLToBlob(dataURL) {
+  if (!dataURL || typeof dataURL !== "string" || !dataURL.startsWith("data:")) return null;
+  const [meta, b64] = dataURL.split(",");
+  const mime = (meta.match(/data:([^;]+)/) || [])[1] || "application/octet-stream";
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function todayStr() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+async function exportData() {
+  const products = await dbGetAll();
+  for (const p of products) {
+    p.photo = await blobToDataURL(p.photo);
+  }
+  const payload = {
+    app: "scanner-app",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    products,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `товары_${todayStr()}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Отчёт выгружен");
+}
+
+async function importData(file) {
+  const text = await file.text();
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (e) {
+    showToast("Файл повреждён или не JSON");
+    return;
+  }
+  const list = Array.isArray(payload) ? payload : payload.products;
+  if (!Array.isArray(list)) {
+    showToast("Нет данных для загрузки");
+    return;
+  }
+  let count = 0;
+  for (const p of list) {
+    if (!p || !p.id) continue;
+    if (p.photo && typeof p.photo === "string") {
+      p.photo = dataURLToBlob(p.photo);
+    }
+    await dbAdd(p);
+    count++;
+  }
+  showToast(`Загружено товаров: ${count}`);
+  renderProducts();
+  renderExpiry();
+}
+
+$("#btn-export").addEventListener("click", exportData);
+$("#btn-import").addEventListener("click", () => $("#import-file").click());
+$("#import-file").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) importData(f);
+  e.target.value = "";
+});
 
 /* ===== Старт ===== */
 renderProducts();
