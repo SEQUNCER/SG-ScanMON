@@ -616,11 +616,12 @@ async function initOCRWorker() {
 }
 
 function preprocessFrame(video) {
-  const w = video.videoWidth, h = video.videoHeight;
+  const scale = 2;
+  const w = video.videoWidth * scale, h = video.videoHeight * scale;
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0);
+  ctx.drawImage(video, 0, 0, w, h);
   const { data: d, width: w2, height: h2 } = ctx.getImageData(0, 0, w, h);
   const n = w2 * h2, gray = new Uint8ClampedArray(n);
   for (let i = 0; i < n; i++) gray[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2];
