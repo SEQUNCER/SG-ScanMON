@@ -616,7 +616,7 @@ async function initOCRWorker() {
 }
 
 function preprocessFrame(video) {
-  const scale = 3, maxW = 2400;
+  const scale = 2, maxW = 1600;
   const w = Math.min(Math.round(video.videoWidth * scale), maxW);
   const h = Math.round(video.videoHeight * w / video.videoWidth);
   const canvas = document.createElement("canvas");

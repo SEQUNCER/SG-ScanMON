@@ -487,8 +487,9 @@ body {
   padding: 16px;
   z-index: 60;
 }
-.capture-box { width: 100%; max-width: 420px; }
+.capture-box { width: 100%; max-width: 420px; pointer-events: auto; }
 .capture-box .manual-row { margin-top: 12px; }
+.capture-box .btn { cursor: pointer; }
 
 /* Toast */
 .toast {
