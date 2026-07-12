@@ -8,17 +8,50 @@ let dbPromise = null;
 function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("exports")) {
+        db.createObjectStore("exports", { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
   return dbPromise;
+}
+
+async function dbExportAdd(record) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("exports", "readwrite");
+    tx.objectStore("exports").put(record);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbExportGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("exports", "readonly");
+    const req = tx.objectStore("exports").getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbExportDelete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("exports", "readwrite");
+    tx.objectStore("exports").delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function dbAdd(product) {
@@ -139,6 +172,7 @@ function switchTab(name) {
   }
   if (name === "products") renderProducts();
   if (name === "expiry") renderExpiry();
+  if (name === "history") renderHistory();
   if (name === "backup") {
     $("#backup-message").hidden = true;
     $("#import-file").value = "";
@@ -634,15 +668,105 @@ async function exportData() {
     products,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const filename = `товары_${todayStr()}.json`;
+  await dbExportAdd({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    createdAt: Date.now(),
+    filename,
+    blob,
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `товары_${todayStr()}.json`;
+  a.download = filename;
   document.body.append(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast("Отчёт выгружен");
+  if (!$("#tab-history").hidden) renderHistory();
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function shareExport(record) {
+  const file = new File([record.blob], record.filename, { type: "application/json" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: "Отчёт по товарам",
+        text: "Выгрузка товаров из приложения",
+      });
+    } catch (e) {
+      /* пользователь отменил — ничего не делаем */
+    }
+  } else if (navigator.share) {
+    try {
+      await navigator.share({ title: "Отчёт по товарам", text: "Выгрузка товаров из приложения" });
+    } catch (e) {
+      downloadBlob(record.blob, record.filename);
+      showToast("Поделиться недоступно — скачано");
+    }
+  } else {
+    downloadBlob(record.blob, record.filename);
+    showToast("Поделиться недоступно — скачано");
+  }
+}
+
+async function renderHistory() {
+  const list = $("#history-list");
+  list.innerHTML = "";
+  const items = (await dbExportGetAll()).sort((a, b) => b.createdAt - a.createdAt);
+  $("#empty-history").hidden = items.length > 0;
+  for (const it of items) {
+    const row = document.createElement("div");
+    row.className = "history-row";
+
+    const info = document.createElement("div");
+    info.className = "history-info";
+    const name = document.createElement("p");
+    name.className = "history-name";
+    name.textContent = it.filename;
+    const sub = document.createElement("p");
+    sub.className = "history-sub";
+    sub.textContent = new Date(it.createdAt).toLocaleString("ru-RU");
+    info.append(name, sub);
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "btn btn-primary";
+    shareBtn.textContent = "Поделиться";
+    shareBtn.addEventListener("click", () => shareExport(it));
+
+    const dlBtn = document.createElement("button");
+    dlBtn.className = "btn";
+    dlBtn.textContent = "Скачать";
+    dlBtn.addEventListener("click", () => downloadBlob(it.blob, it.filename));
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-danger";
+    delBtn.textContent = "Удалить";
+    delBtn.addEventListener("click", async () => {
+      await dbExportDelete(it.id);
+      renderHistory();
+    });
+
+    actions.append(shareBtn, dlBtn, delBtn);
+    row.append(info, actions);
+    list.append(row);
+  }
 }
 
 async function importData(file) {

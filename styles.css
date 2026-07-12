@@ -266,15 +266,15 @@ body {
   border: none;
   background: transparent;
   color: var(--muted);
-  padding: 10px 0;
-  font-size: 12px;
+  padding: 8px 2px;
+  font-size: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
   cursor: pointer;
 }
-.nav-btn .nav-icon { font-size: 22px; line-height: 1; }
+.nav-btn .nav-icon { font-size: 18px; line-height: 1; }
 .nav-btn.active { color: var(--primary); }
 
 /* Модальное окно товара */
@@ -372,6 +372,33 @@ body {
   gap: 12px;
   margin-top: 8px;
 }
+
+/* Вкладка «История выгрузки» */
+.history-list { display: flex; flex-direction: column; gap: 12px; }
+.history-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.history-info { margin-bottom: 10px; min-width: 0; }
+.history-name {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  word-break: break-all;
+}
+.history-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.history-actions .btn { flex: 1 1 auto; padding: 10px 12px; font-size: 14px; }
 .expiry-row {
   display: flex;
   align-items: center;

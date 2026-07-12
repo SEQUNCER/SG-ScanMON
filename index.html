@@ -83,6 +83,13 @@
       </div>
       <p id="backup-message" class="empty-hint" hidden></p>
     </section>
+
+    <!-- Вкладка: История выгрузки -->
+    <section id="tab-history" class="tab-panel" hidden>
+      <p class="hint">Сохранённые выгрузки. Нажмите «Поделиться», чтобы отправить файл в Telegram, MAX, VK и др.</p>
+      <div id="history-list" class="history-list"></div>
+      <p id="empty-history" class="empty-hint" hidden>Выгрузок пока нет.</p>
+    </section>
   </main>
 
   <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
@@ -168,6 +175,10 @@
     <button class="nav-btn" data-tab="backup">
       <span class="nav-icon">⇩</span>
       <span>Выгрузка</span>
+    </button>
+    <button class="nav-btn" data-tab="history">
+      <span class="nav-icon">🕘</span>
+      <span>История</span>
     </button>
   </nav>
 
