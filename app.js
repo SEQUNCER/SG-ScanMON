@@ -251,7 +251,7 @@ async function renderProducts() {
 
 $("#search").addEventListener("input", renderProducts);
 
-/* ===== Универсальный сканер ===== */
+/* ===== Универсальный сканер (ZXing) ===== */
 const scanners = {
   add: { reader: null, locked: false },
   find: { reader: null, locked: false },
@@ -335,7 +335,7 @@ async function handleFind(barcode) {
 
 /* ===== Модальное окно товара ===== */
 let currentProduct = null;
-let formMode = "add"; // add | view | edit
+let formMode = "add";
 
 function setFormMode(mode) {
   formMode = mode;
@@ -615,10 +615,8 @@ function closeNameCapture() {
   $("#capture-status").hidden = true;
 }
 
-/* Предобработка: оттенки серого -> лёгкое размытие -> адаптивная
-   (локальная) бинаризация -> увеличение.
-   Глобальный порог (Отсу) плохо работает на фото с тенями и перепадами
-   яркости, поэтому используем локальный порог по окрестности каждого пикселя. */
+/* Предобработка: оттенки серого -> бокс-блюр -> локальная бинаризация -> увеличение.
+   Глобальный порог (Отсу) плохо работает на фото с тенями, поэтому локальный порог по окрестности. */
 function boxBlurGray(gray, w, h, r) {
   const iw = w + 1;
   const integral = new Int32Array((w + 1) * (h + 1));
@@ -649,14 +647,13 @@ function boxBlurGray(gray, w, h, r) {
 }
 
 /* Предобработка: увеличение + перевод в оттенки серого.
-   Возвращает НЕСКОЛЬКО вариантов кадра, чтобы потом выбрать тот,
-   где Tesseract видит больше текста:
-   1) ч/б оттенки серого — Tesseract сам делает бинаризацию (надёжно
-      при разном освещении);
-   2) мягкая локальная бинаризация с небольшим радиусом. */
+   Возвращает НЕСКОЛЬКО вариантов кадра, чтобы выбрать лучший:
+   1) оттенки серого — Tesseract сам делает бинаризацию (надежно при разном свете);
+   2) мягкая локальная бинаризация с малым радиусом;
+   3) инвертированная бинаризация (для тёмных ценников со светлым текстом). */
 function buildCandidates(srcCanvas) {
-  const scale = 2;
-  const w = Math.min(Math.round(srcCanvas.width * scale), 1800);
+  const scale = 3;
+  const w = Math.min(Math.round(srcCanvas.width * scale), 2400);
   const h = Math.round((srcCanvas.height * w) / srcCanvas.width);
   const base = document.createElement("canvas");
   base.width = w;
@@ -685,7 +682,7 @@ function buildCandidates(srcCanvas) {
   }
   gctx.putImageData(gimg, 0, 0);
 
-  // Вариант 2: мягкая локальная бинаризация (малый радиус, чтобы не «съесть» текст)
+  // Вариант 2: мягкая локальная бинаризация
   const r = Math.max(3, Math.floor(Math.min(w, h) / 64));
   const local = boxBlurGray(gray, w, h, r);
   const binCanvas = document.createElement("canvas");
@@ -702,11 +699,24 @@ function buildCandidates(srcCanvas) {
   }
   bctx2.putImageData(bimg, 0, 0);
 
-  return [grayCanvas, binCanvas];
+  // Вариант 3: инвертированная бинаризация (светлый текст на тёмном)
+  const invCanvas = document.createElement("canvas");
+  invCanvas.width = w;
+  invCanvas.height = h;
+  const ictx = invCanvas.getContext("2d");
+  const iimg = ictx.createImageData(w, h);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    const v = gray[i] > local[i] + C ? 0 : 255;
+    iimg.data[o] = iimg.data[o + 1] = iimg.data[o + 2] = v;
+    iimg.data[o + 3] = 255;
+  }
+  ictx.putImageData(iimg, 0, 0);
+
+  return [grayCanvas, binCanvas, invCanvas];
 }
 
-// Мягкий фильтр допустимых символов для пост-обработки (не блокирует вывод
-// движка, а лишь отсекает заведомо лишние знаки при выборе строки).
+// Мягкий фильтр допустимых символов для пост-обработки.
 const OCR_ALLOWED = /[A-Za-zА-Яа-яЁё0-9]/;
 
 function pickProductName(data) {
@@ -718,30 +728,32 @@ function pickProductName(data) {
   }
   lines = lines
     .map((l) => ({ text: String(l.text || "").trim(), conf: l.conf || 0 }))
-    .filter((l) => l.text.length >= 2)
-    .map((l) => ({ ...l, hasLetters: /[A-Za-zА-Яа-яЁё]/.test(l.text) }));
+    .filter((l) => l.text.length >= 1)
+    .map((l) => ({ ...l, hasLetters: /[A-Za-zА-Яа-яЁё0-9]/.test(l.text) }));
 
   if (!lines.length) return { text: "", conf: 0 };
   const pool = lines.filter((l) => l.hasLetters).length
     ? lines.filter((l) => l.hasLetters)
     : lines;
-  // лучшее по уверенности, при равенстве — по длине
   pool.sort((a, b) => b.conf - a.conf || b.text.length - a.text.length);
   return { text: pool[0].text, conf: pool[0].conf };
 }
 
 async function recognizeWithFallback(frames) {
-  // Источники языковых моделей. jsDelivr доступен в РФ; projectnaptha — запасной.
   let lastOCRSource = "";
   const langPaths = [
     "https://cdn.jsdelivr.net/gh/naptha/tessdata@4.0.0",
     "https://tessdata.projectnaptha.com/4.0.0",
+    "/tessdata",
   ];
   let lastErr = null;
   for (const langPath of langPaths) {
     let worker = null;
     try {
-      worker = await Tesseract.createWorker("rus", 1, { langPath });
+      worker = await Tesseract.createWorker("rus", {
+        langPath,
+        logger: (m) => console.log("[Tesseract]", m.status, m.progress),
+      });
       const results = [];
       for (const f of frames) {
         results.push(await worker.recognize(f));
@@ -771,14 +783,16 @@ async function captureNameShot() {
   // Снимаем 3 кадра с небольшим интервалом, пока камера жива.
   const grayCands = [];
   const binCands = [];
+  const invCands = [];
   for (let i = 0; i < 3; i++) {
     const raw = document.createElement("canvas");
     raw.width = video.videoWidth;
     raw.height = video.videoHeight;
     raw.getContext("2d").drawImage(video, 0, 0);
-    const [g, b] = buildCandidates(raw);
+    const [g, b, inv] = buildCandidates(raw);
     grayCands.push(g);
     binCands.push(b);
+    invCands.push(inv);
     if (i < 2) await delay(250);
   }
 
@@ -813,11 +827,17 @@ async function captureNameShot() {
     const r1 = await recognizeWithFallback(grayCands);
     pickBest(r1.results, acc);
     let source = r1.source;
-    // Этап 2: если ничего не выбрано — пробуем бинаризованные варианты
+    // Этап 2: если ничего не выбрано — пробуем бинаризованные
     if (!acc.best.text) {
       const r2 = await recognizeWithFallback(binCands);
       pickBest(r2.results, acc);
       source = r2.source;
+    }
+    // Этап 3: инвертированные (для тёмных ценников)
+    if (!acc.best.text) {
+      const r3 = await recognizeWithFallback(invCands);
+      pickBest(r3.results, acc);
+      source = r3.source;
     }
 
     console.log("[OCR] source:", source, "| raw:", JSON.stringify(acc.rawBest));
