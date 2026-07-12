@@ -615,19 +615,100 @@ function closeNameCapture() {
   $("#capture-status").hidden = true;
 }
 
+/* Предобработка: оттенки серого -> бинаризация по Отсу -> увеличение.
+   Это сильно повышает точность Tesseract на ценниках. */
+function otsuThreshold(gray, n) {
+  const hist = new Array(256).fill(0);
+  for (let i = 0; i < n; i++) hist[gray[i]]++;
+  let total = n;
+  let sum = 0;
+  for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0;
+  let wB = 0;
+  let maxVar = 0;
+  let threshold = 127;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > maxVar) {
+      maxVar = between;
+      threshold = t;
+    }
+  }
+  return threshold;
+}
+
+function preprocess(srcCanvas) {
+  const scale = 2;
+  const w = Math.min(srcCanvas.width * scale, 2000);
+  const h = Math.round((srcCanvas.height * w) / srcCanvas.width);
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(srcCanvas, 0, 0, w, h);
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const n = w * h;
+  const gray = new Uint8ClampedArray(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    gray[i] = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2];
+  }
+  const thr = otsuThreshold(gray, n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    const v = gray[i] > thr ? 255 : 0;
+    d[o] = d[o + 1] = d[o + 2] = v;
+    d[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+const OCR_WHITELIST =
+  "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя" +
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" +
+  "0123456789.,-/:() ";
+
 function pickProductName(data) {
   let lines = [];
   if (data.lines && data.lines.length) {
-    lines = data.lines.map((l) => (typeof l === "string" ? l : l.text || ""));
+    lines = data.lines.map((l) => (typeof l === "string" ? { text: l, conf: 0 } : l));
   } else {
-    lines = (data.text || "").split("\n");
+    lines = (data.text || "").split("\n").map((t) => ({ text: t, conf: 0 }));
   }
-  lines = lines.map((s) => String(s).trim()).filter(Boolean);
-  const withLetters = lines.filter((l) => /[A-Za-zА-Яа-яЁё]/.test(l));
-  const pool = withLetters.length ? withLetters : lines;
-  if (!pool.length) return "";
-  pool.sort((a, b) => b.length - a.length);
-  return pool[0];
+  lines = lines
+    .map((l) => ({ text: String(l.text || "").trim(), conf: l.conf || 0 }))
+    .filter((l) => l.text.length >= 2)
+    .map((l) => ({ ...l, hasLetters: /[A-Za-zА-Яа-яЁё]/.test(l.text) }));
+
+  if (!lines.length) return "";
+  const pool = lines.filter((l) => l.hasLetters).length
+    ? lines.filter((l) => l.hasLetters)
+    : lines;
+  // лучшее по длине, при равенстве — по уверенности
+  pool.sort((a, b) => b.text.length - a.text.length || b.conf - a.conf);
+  return pool[0].text;
+}
+
+async function ocrImage(canvas, status) {
+  const worker = await Tesseract.createWorker("rus", 1, {
+    tessedit_pageseg_mode: 6,
+    tessedit_char_whitelist: OCR_WHITELIST,
+  });
+  try {
+    const { data } = await worker.recognize(canvas);
+    return data;
+  } finally {
+    await worker.terminate();
+  }
 }
 
 async function captureNameShot() {
@@ -636,10 +717,10 @@ async function captureNameShot() {
     showToast("Камера ещё не готова");
     return;
   }
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
+  const raw = document.createElement("canvas");
+  raw.width = video.videoWidth;
+  raw.height = video.videoHeight;
+  raw.getContext("2d").drawImage(video, 0, 0);
 
   if (nameStream) {
     nameStream.getTracks().forEach((t) => t.stop());
@@ -658,7 +739,8 @@ async function captureNameShot() {
       status.hidden = true;
       return;
     }
-    const { data } = await Tesseract.recognize(canvas, "rus");
+    const processed = preprocess(raw);
+    const data = await ocrImage(processed, status);
     const name = pickProductName(data);
     if (name) {
       $("#form-name").value = name;
