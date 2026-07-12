@@ -108,12 +108,7 @@
       </label>
       <label class="field">
         <span>Название товара</span>
-        <div class="name-row">
-          <input id="form-name" type="text" placeholder="Например: Молоко 1л" required />
-          <button type="button" id="btn-scan-name" class="icon-btn" title="Считать название с фото">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-          </button>
-        </div>
+        <input id="form-name" type="text" placeholder="Например: Молоко 1л" required />
       </label>
       <label class="field" id="photo-field">
         <span>Фото товара</span>
@@ -166,21 +161,6 @@
     </form>
   </div>
 
-  <!-- Оверлей захвата фото для распознавания названия -->
-  <div id="name-capture-overlay" class="capture-overlay" hidden>
-    <div class="capture-box">
-      <div class="scanner-viewport">
-        <video id="name-video" playsinline muted></video>
-        <div class="scan-overlay"><div class="scan-line"></div></div>
-      </div>
-      <p class="hint">Наведите камеру на название/ценник при хорошем свете, ровно и близко. Сделайте снимок.</p>
-      <div class="manual-row">
-        <button id="btn-capture-shot" class="btn btn-primary">Сделать снимок</button>
-        <button id="btn-capture-cancel" class="btn">Отмена</button>
-      </div>
-      <p id="capture-status" class="empty-hint" hidden></p>
-    </div>
-  </div>
 
   <nav class="bottom-nav">
     <button class="nav-btn active" data-tab="products">
@@ -212,7 +192,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script src="app.js?v=8"></script>
 </body>
 </html>
