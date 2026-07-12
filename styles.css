@@ -127,7 +127,8 @@ body {
   overflow: hidden;
 }
 #add-video,
-#find-video {
+#find-video,
+#name-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
