@@ -611,17 +611,23 @@ function closeNameCapture() {
 async function initOCRWorker() {
   if (ocrWorker) return ocrWorker;
   if (!window.Tesseract) throw new Error("Tesseract не загружен");
-  ocrWorker = await Tesseract.createWorker("rus", { logger: m => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%") });
+  ocrWorker = await Tesseract.createWorker("rus", {
+    logger: m => console.log("[Tesseract]", m.status, Math.round((m.progress || 0) * 100) + "%")
+  });
+  // Оптимизация для ценников: однострочный текст, разрешаем кириллицу/латиницу/цифры/пробел/дефис/точку/запятую
+  await ocrWorker.setParameters({
+    tessedit_char_whitelist: "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюяABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,-",
+    preserve_interword_spaces: "1",
+  });
   return ocrWorker;
 }
 
 function preprocessFrame(video) {
-  const scale = 2;
-  const w = video.videoWidth * scale, h = video.videoHeight * scale;
+  const w = video.videoWidth, h = video.videoHeight;
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, w, h);
+  ctx.drawImage(video, 0, 0);
   const { data: d, width: w2, height: h2 } = ctx.getImageData(0, 0, w, h);
   const n = w2 * h2, gray = new Uint8ClampedArray(n);
   for (let i = 0; i < n; i++) gray[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2];
@@ -661,14 +667,19 @@ $("#btn-capture-shot").addEventListener("click", async () => {
   $("#name-capture-overlay").hidden = true;
   status.textContent = "Распознаю…";
   try {
-    const { data } = await (await initOCRWorker()).recognize(processed);
-    const raw = (data.text || "").replace(/\s+/g, " ").trim();
-    console.log("[OCR] raw:", raw);
-    console.log("[OCR] lines:", data.lines?.map(l => l.text));
-    console.log("[OCR] confidence:", data.confidence);
-    const name = pickBestLine(data);
-    if (name) { $("#form-name").value = name; showToast("Название: " + name); }
-    else if (raw) { $("#form-name").value = raw.slice(0, 120); showToast("Текст в поле — проверьте"); }
+    const worker = await initOCRWorker();
+    let best = { text: "", conf: -1 };
+    // Пробуем разные PSM режимы: 7=одна строка, 8=одно слово, 13=сырой текст
+    for (const psm of ["7", "8", "13", "6"]) {
+      await worker.setParameters({ tessedit_pageseg_mode: psm });
+      const { data } = await worker.recognize(processed);
+      const raw = (data.text || "").replace(/\s+/g, " ").trim();
+      console.log(`[OCR] psm${psm}:`, raw, "conf:", data.confidence);
+      const name = pickBestLine(data);
+      if (name && (data.confidence || 0) > best.conf) { best = { text: name, conf: data.confidence }; }
+      else if (!best.text && raw) { best = { text: raw.slice(0, 120), conf: data.confidence || 0 }; }
+    }
+    if (best.text) { $("#form-name").value = best.text; showToast("Название: " + best.text); }
     else showToast("Текст не найден — ближе, ровнее, светлее");
   } catch (e) { console.error(e); showToast("Ошибка OCR: " + (e?.message || e)); }
   status.hidden = true;
