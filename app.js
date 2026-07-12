@@ -704,54 +704,7 @@ function pickBestLine(data) {
   return best.text;
 }
 
-async function captureNameShot() {
-  const video = $("#name-video");
-  if (!video.videoWidth) {
-    showToast("Камера ещё не готова");
-    return;
-  }
-  const status = $("#capture-status");
-  status.hidden = false;
-  status.textContent = "Съёмка кадра…";
-
-  // Один кадр — проще и быстрее
-  const processed = preprocessFrame(video);
-
-  if (nameStream) {
-    nameStream.getTracks().forEach((t) => t.stop());
-    nameStream = null;
-  }
-  video.srcObject = null;
-  $("#name-capture-overlay").hidden = true;
-
-  status.textContent = "Распознавание…";
-
-  try {
-    const worker = await initOCRWorker();
-    const result = await worker.recognize(processed);
-    const raw = (result.data.text || "").replace(/\s+/g, " ").trim();
-    console.log("[OCR] raw:", JSON.stringify(raw));
-    console.log("[OCR] confidence:", result.data.confidence);
-
-    const name = pickBestLine(result.data);
-    if (name) {
-      $("#form-name").value = name;
-      showToast("Название: " + name);
-    } else if (raw) {
-      showToast("Распознано: «" + raw.slice(0, 80) + "» — проверьте");
-      $("#form-name").value = raw;
-    } else {
-      showToast("Текст не найден — ближе, ровнее, больше света");
-    }
-  } catch (e) {
-    console.error("[OCR] Error:", e);
-    showToast("Ошибка OCR: " + (e?.message || e));
-  }
-  status.hidden = true;
-}
-
 $("#btn-scan-name").addEventListener("click", openNameCapture);
-$("#btn-capture-shot").addEventListener("click", captureNameShot);
 $("#btn-capture-cancel").addEventListener("click", closeNameCapture);
 
 /* ===== Вкладка «Сроки годности» ===== */
