@@ -561,6 +561,25 @@ function updateExpiryUI() {
   preview.textContent = text;
 }
 
+function showExpirySummary() {
+  const ex = currentProduct && currentProduct.expiry;
+  $("#expiry-edit-fields").hidden = true;
+  const preview = $("#expiry-preview");
+  if (ex && ex.mode) {
+    const to = computeExpiryTo(ex);
+    const left = daysLeft(to);
+    const status =
+      expiryStatus(to) === "expired"
+        ? "просрочен"
+        : expiryStatus(to) === "soon"
+        ? "скоро истекает"
+        : "в порядке";
+    preview.textContent = `Годен до ${formatDate(to)} — ${status} (осталось ${left} дн.)`;
+  } else {
+    preview.textContent = "Срок годности не указан.";
+  }
+}
+
 function updateReceivingExpiryUI() {
   const mode = $("#receiving-form-expiry-mode").value;
   const editFields = $("#receiving-expiry-edit-fields");
@@ -689,25 +708,30 @@ $("#receiving-form-photo").addEventListener("change", (e) => {
 
 
 /* ===== Вкладка «Сроки годности» ===== */
-  const ex = currentProduct && currentProduct.expiry;
-  $("#expiry-edit-fields").hidden = true;
-  const preview = $("#expiry-preview");
-  if (ex && ex.mode) {
-    const to = computeExpiryTo(ex);
-    const left = daysLeft(to);
-    const status =
-      expiryStatus(to) === "expired"
-        ? "просрочен"
-        : expiryStatus(to) === "soon"
-        ? "скоро истекает"
-        : "в порядке";
-    preview.textContent = `Годен до ${formatDate(to)} — ${status} (осталось ${left} дн.)`;
-  } else {
-    preview.textContent = "Срок годности не указан.";
-  }
-}
 
 function readExpiryFromForm() {
+  const mode = $("#form-expiry-mode").value;
+  if (!mode) return null;
+  const ex = { mode };
+  ex.from = $("#form-expiry-from").value || null;
+  if (mode === "range") {
+    ex.to = $("#form-expiry-to").value || null;
+  } else {
+    ex.durationValue = parseInt($("#form-expiry-duration").value, 10) || null;
+    ex.durationUnit = $("#form-expiry-unit").value;
+  }
+  return ex;
+}
+
+["form-expiry-mode", "form-expiry-from", "form-expiry-to", "form-expiry-duration", "form-expiry-unit"].forEach(
+  (id) => {
+    const el = $("#" + id);
+    el.addEventListener("input", updateExpiryUI);
+    el.addEventListener("change", updateExpiryUI);
+  }
+);
+
+async function renderExpiry() {
   const mode = $("#form-expiry-mode").value;
   if (!mode) return null;
   const ex = { mode };
@@ -1003,101 +1027,6 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
   closeReceivingModal();
   switchTab("products");
 });
-
-function readReceivingExpiryFromForm() {
-  const mode = $("#receiving-form-expiry-mode").value;
-  if (!mode) return null;
-  const from = $("#receiving-form-expiry-from").value;
-  const to = $("#receiving-form-expiry-to").value;
-  const durationValue = $("#receiving-form-expiry-duration").value;
-  const durationUnit = $("#receiving-form-expiry-unit").value;
-  return {
-    mode,
-    from: from || null,
-    to: to || null,
-    durationValue: durationValue ? parseInt(durationValue, 10) : null,
-    durationUnit: durationUnit || "days",
-  };
-}
-
-function closeReceivingModal() {
-  $("#receiving-area").hidden = true;
-  $("#btn-start-receiving").hidden = false;
-  $("#receiving-step-supplier").hidden = false;
-  $("#receiving-step-scan").hidden = true;
-  $("#receiving-step-product").hidden = true;
-  $("#btn-receiving-cancel").hidden = true;
-  $("#receiving-manual").value = "";
-  receivingBarcode = null;
-  receivingProduct = null;
-  receivingSupplier = null;
-  stopReceivingScanner();
-}
-
-$("#btn-receiving-cancel").addEventListener("click", closeReceivingModal);
-
-$("#btn-start-receiving").addEventListener("click", async () => {
-  await refreshReceivingSuppliers();
-  $("#btn-start-receiving").hidden = true;
-  $("#receiving-area").hidden = false;
-});
-
-$("#receiving-form-photo").addEventListener("change", (e) => {
-  const file = e.target.files && e.target.files[0];
-  const preview = $("#receiving-photo-preview");
-  preview.innerHTML = "";
-  if (!file) return;
-  const img = document.createElement("img");
-  img.src = URL.createObjectURL(file);
-  preview.append(img);
-});
-
-
-async function renderExpiry() {
-  const list = $("#expiry-list");
-  const empty = $("#empty-expiry");
-  list.innerHTML = "";
-  const products = await dbGetAll();
-  const items = [];
-  for (const p of products) {
-    if (!p.expiry || !p.expiry.mode) continue;
-    const to = computeExpiryTo(p.expiry);
-    if (!to) continue;
-    items.push({ p, to, left: daysLeft(to), status: expiryStatus(to) });
-  }
-  items.sort((a, b) => a.to - b.to);
-  empty.hidden = items.length > 0;
-
-  for (const it of items) {
-    const row = document.createElement("div");
-    row.className = "expiry-row status-" + it.status;
-
-    const info = document.createElement("div");
-    info.className = "expiry-info";
-    const name = document.createElement("p");
-    name.className = "expiry-name";
-    name.textContent = it.p.name;
-    const sub = document.createElement("p");
-    sub.className = "expiry-sub";
-    const fromStr = formatDate(parseDate(it.p.expiry.from));
-    if (it.p.expiry.mode === "range") {
-      sub.textContent = `с ${fromStr} по ${formatDate(it.to)}`;
-    } else {
-      const u = it.p.expiry.durationUnit === "months" ? "мес." : "дн.";
-      sub.textContent = `с ${fromStr} + ${it.p.expiry.durationValue} ${u} → ${formatDate(it.to)}`;
-    }
-    info.append(name, sub);
-
-    const badge = document.createElement("div");
-    badge.className = "expiry-badge";
-    badge.textContent =
-      it.left < 0 ? `просрочен на ${Math.abs(it.left)} дн.` : `осталось ${it.left} дн.`;
-
-    row.append(info, badge);
-    row.addEventListener("click", () => openFormView(it.p.id));
-    list.append(row);
-  }
-}
 
 /* ===== Выгрузка / Загрузка данных ===== */
 function blobToDataURL(blob) {
