@@ -3,16 +3,24 @@
 /* ===== Хранилище товаров (IndexedDB) ===== */
 const DB_NAME = "scanner-app";
 const STORE = "products";
+const SUPPLIERS_STORE = "suppliers";
+const RECEIVING_STORE = "receiving";
 let dbPromise = null;
 
 function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(SUPPLIERS_STORE)) {
+        db.createObjectStore(SUPPLIERS_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(RECEIVING_STORE)) {
+        db.createObjectStore(RECEIVING_STORE, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("exports")) {
         db.createObjectStore("exports", { keyPath: "id" });
@@ -86,6 +94,58 @@ async function dbDelete(id) {
     tx.objectStore(STORE).delete(id);
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ===== Поставщики ===== */
+async function dbSupplierAdd(supplier) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SUPPLIERS_STORE, "readwrite");
+    tx.objectStore(SUPPLIERS_STORE).put(supplier);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbSupplierGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SUPPLIERS_STORE, "readonly");
+    const req = tx.objectStore(SUPPLIERS_STORE).getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => a.name.localeCompare(b.name)));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbSupplierDelete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SUPPLIERS_STORE, "readwrite");
+    tx.objectStore(SUPPLIERS_STORE).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ===== Приёмка ===== */
+async function dbReceivingAdd(record) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIVING_STORE, "readwrite");
+    tx.objectStore(RECEIVING_STORE).put(record);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbReceivingGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIVING_STORE, "readonly");
+    const req = tx.objectStore(RECEIVING_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -170,6 +230,7 @@ function switchTab(name) {
     stopScanner("find");
     $("#find-message").hidden = true;
   }
+  if (name !== "accounting") stopReceivingScanner();
   if (name === "products") renderProducts();
   if (name === "expiry") renderExpiry();
   if (name === "history") renderHistory();
@@ -320,6 +381,9 @@ function stopScanner(which) {
   $(`#btn-stop-${which}`).addEventListener("click", () => stopScanner(which));
 });
 
+$("#btn-start-receiving-scan").addEventListener("click", startReceivingScanner);
+$("#btn-stop-receiving-scan").addEventListener("click", stopReceivingScanner);
+
 function wireManual(which, inputId, handler) {
   $(`#btn-${which}-manual`).addEventListener("click", () => {
     const code = $(`#${inputId}`).value.trim();
@@ -355,6 +419,7 @@ function setFormMode(mode) {
   formMode = mode;
   const title = $("#form-title");
   const nameInput = $("#form-name");
+  const quantityInput = $("#form-quantity");
   const photoInput = $("#form-photo");
   const photoField = $("#photo-field");
   const preview = $("#photo-preview");
@@ -368,6 +433,7 @@ function setFormMode(mode) {
   if (mode === "add") {
     title.textContent = "Новый товар";
     nameInput.readOnly = false;
+    quantityInput.readOnly = false;
     photoInput.hidden = false;
     photoField.hidden = false;
     viewActions.hidden = true;
@@ -378,6 +444,7 @@ function setFormMode(mode) {
   } else if (mode === "view") {
     title.textContent = "Карточка товара";
     nameInput.readOnly = true;
+    quantityInput.readOnly = true;
     photoInput.hidden = true;
     photoField.hidden = false;
     viewActions.hidden = false;
@@ -387,6 +454,7 @@ function setFormMode(mode) {
   } else if (mode === "edit") {
     title.textContent = "Редактировать товар";
     nameInput.readOnly = false;
+    quantityInput.readOnly = false;
     photoInput.hidden = false;
     photoField.hidden = false;
     viewActions.hidden = true;
@@ -404,6 +472,7 @@ function openFormAdd(barcode) {
   currentProduct = null;
   $("#form-barcode").value = barcode;
   $("#form-name").value = "";
+  $("#form-quantity").value = "0";
   $("#photo-preview").innerHTML = "";
   $("#form-photo").value = "";
   $("#form-expiry-mode").value = "";
@@ -423,6 +492,7 @@ async function openFormView(id) {
   if (!currentProduct) return;
   $("#form-barcode").value = currentProduct.barcode;
   $("#form-name").value = currentProduct.name;
+  $("#form-quantity").value = String(currentProduct.quantity || 0);
   const preview = $("#photo-preview");
   preview.innerHTML = "";
   const url = getPhotoUrl(currentProduct.photo);
@@ -491,7 +561,134 @@ function updateExpiryUI() {
   preview.textContent = text;
 }
 
-function showExpirySummary() {
+function updateReceivingExpiryUI() {
+  const mode = $("#receiving-form-expiry-mode").value;
+  const editFields = $("#receiving-expiry-edit-fields");
+  const toField = $("#receiving-expiry-to-field");
+  const durField = $("#receiving-expiry-duration-field");
+  const preview = $("#receiving-expiry-preview");
+  if (!mode) {
+    editFields.hidden = true;
+    preview.textContent = "";
+    return;
+  }
+  editFields.hidden = false;
+  toField.hidden = mode !== "range";
+  durField.hidden = mode !== "duration";
+  const from = parseDate($("#receiving-form-expiry-from").value);
+  let to = null;
+  let text = "";
+  if (mode === "range") {
+    to = parseDate($("#receiving-form-expiry-to").value);
+    text = `Годен: ${formatDate(from)} — ${formatDate(to)}`;
+  } else {
+    const val = parseInt($("#receiving-form-expiry-duration").value, 10);
+    const unit = $("#receiving-form-expiry-unit").value;
+    if (val > 0 && from) {
+      to = computeExpiryTo({
+        mode,
+        from: $("#receiving-form-expiry-from").value,
+        durationValue: val,
+        durationUnit: unit,
+      });
+      const u = unit === "months" ? "мес." : "дн.";
+      text = `С ${formatDate(from)} + ${val} ${u} → до ${formatDate(to)}`;
+    } else {
+      text = "Укажите дату начала и срок.";
+    }
+  }
+  if (to) {
+    const left = daysLeft(to);
+    text += `  (осталось ${left} дн.)`;
+  }
+  preview.textContent = text;
+}
+
+["receiving-form-expiry-mode", "receiving-form-expiry-from", "receiving-form-expiry-to", "receiving-form-expiry-duration", "receiving-form-expiry-unit"].forEach(
+  (id) => {
+    const el = $("#" + id);
+    el.addEventListener("input", updateReceivingExpiryUI);
+    el.addEventListener("change", updateReceivingExpiryUI);
+  }
+);
+
+$("#btn-cancel-receiving-product").addEventListener("click", closeReceivingModal);
+
+$("#receiving-product-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("#receiving-form-name").value.trim();
+  const quantity = Math.max(1, parseInt($("#receiving-form-quantity").value || "1", 10) || 1);
+  const barcode = receivingBarcode;
+  const file = $("#receiving-form-photo").files && $("#receiving-form-photo").files[0];
+
+  if (!receivingProduct) {
+    const product = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      barcode,
+      name,
+      quantity,
+      photo: file || null,
+      expiry: readReceivingExpiryFromForm(),
+      createdAt: Date.now(),
+    };
+    await dbAdd(product);
+    receivingProduct = product;
+  } else {
+    receivingProduct.quantity = (receivingProduct.quantity || 0) + quantity;
+    if (file) receivingProduct.photo = file;
+    receivingProduct.expiry = readReceivingExpiryFromForm();
+    await dbAdd(receivingProduct);
+  }
+
+  const record = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    supplierId: receivingSupplier,
+    barcode,
+    productName: receivingProduct.name,
+    quantity,
+    date: new Date().toISOString(),
+  };
+  await dbReceivingAdd(record);
+
+  showToast(`Принято: ${quantity} шт.`);
+  closeReceivingModal();
+  switchTab("products");
+});
+
+function closeReceivingModal() {
+  $("#receiving-area").hidden = true;
+  $("#btn-start-receiving").hidden = false;
+  $("#receiving-step-supplier").hidden = false;
+  $("#receiving-step-scan").hidden = true;
+  $("#receiving-step-product").hidden = true;
+  $("#btn-receiving-cancel").hidden = true;
+  $("#receiving-manual").value = "";
+  receivingBarcode = null;
+  receivingProduct = null;
+  receivingSupplier = null;
+  stopReceivingScanner();
+}
+
+$("#btn-receiving-cancel").addEventListener("click", closeReceivingModal);
+
+$("#btn-start-receiving").addEventListener("click", async () => {
+  await refreshReceivingSuppliers();
+  $("#btn-start-receiving").hidden = true;
+  $("#receiving-area").hidden = false;
+});
+
+$("#receiving-form-photo").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  const preview = $("#receiving-photo-preview");
+  preview.innerHTML = "";
+  if (!file) return;
+  const img = document.createElement("img");
+  img.src = URL.createObjectURL(file);
+  preview.append(img);
+});
+
+
+/* ===== Вкладка «Сроки годности» ===== */
   const ex = currentProduct && currentProduct.expiry;
   $("#expiry-edit-fields").hidden = true;
   const preview = $("#expiry-preview");
@@ -567,6 +764,7 @@ $("#product-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const barcode = $("#form-barcode").value.trim();
   const name = $("#form-name").value.trim();
+  const quantity = Math.max(0, parseInt($("#form-quantity").value || "0", 10) || 0);
   if (!name) {
     showToast("Укажите название товара");
     return;
@@ -578,6 +776,7 @@ $("#product-form").addEventListener("submit", async (e) => {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       barcode,
       name,
+      quantity,
       photo: file || null,
       expiry: readExpiryFromForm(),
       createdAt: Date.now(),
@@ -586,6 +785,7 @@ $("#product-form").addEventListener("submit", async (e) => {
     showToast("Товар сохранён");
   } else if (formMode === "edit" && currentProduct) {
     currentProduct.name = name;
+    currentProduct.quantity = quantity;
     if (file) currentProduct.photo = file;
     currentProduct.expiry = readExpiryFromForm();
     await dbAdd(currentProduct);
@@ -596,8 +796,262 @@ $("#product-form").addEventListener("submit", async (e) => {
   switchTab("products");
 });
 
+/* ===== Поставщики ===== */
+const receivingScanners = { receiving: { reader: null, locked: false } };
 
-/* ===== Вкладка «Сроки годности» ===== */
+async function startReceivingScanner() {
+  const cfg = receivingScanners.receiving;
+  if (!window.ZXing) {
+    showToast("Библиотека сканера не загрузилась (нужен интернет)");
+    return;
+  }
+  cfg.locked = false;
+  const video = $("#receiving-video");
+  try {
+    cfg.reader = new ZXing.BrowserMultiFormatReader();
+    await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
+      if (result && !cfg.locked) {
+        cfg.locked = true;
+        const code = result.getText();
+        stopReceivingScanner();
+        $("#receiving-manual").value = code;
+        handleReceivingBarcode(code);
+      }
+    });
+    $("#btn-start-receiving-scan").hidden = true;
+    $("#btn-stop-receiving-scan").hidden = false;
+  } catch (e) {
+    console.error(e);
+    showToast("Нет доступа к камере. Проверьте разрешения и HTTPS/localhost");
+  }
+}
+
+function stopReceivingScanner() {
+  const cfg = receivingScanners.receiving;
+  if (cfg.reader && typeof cfg.reader.stopAsync === "function") {
+    cfg.reader.stopAsync().catch(() => {});
+  }
+  cfg.reader = null;
+  const video = $("#receiving-video");
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  $("#btn-start-receiving-scan").hidden = false;
+  $("#btn-stop-receiving-scan").hidden = true;
+}
+
+let receivingBarcode = null;
+let receivingProduct = null;
+let receivingSupplier = null;
+
+async function openSupplierModal() {
+  $("#supplier-overlay").hidden = false;
+  $("#supplier-name").value = "";
+  $("#supplier-name").focus();
+}
+
+function closeSupplierModal() {
+  $("#supplier-overlay").hidden = true;
+}
+
+$("#btn-cancel-supplier").addEventListener("click", closeSupplierModal);
+
+$("#supplier-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("#supplier-name").value.trim();
+  if (!name) {
+    showToast("Укажите название поставщика");
+    return;
+  }
+  const supplier = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    name,
+    createdAt: Date.now(),
+  };
+  await dbSupplierAdd(supplier);
+  closeSupplierModal();
+  showToast("Поставщик добавлен");
+  await refreshReceivingSuppliers();
+  $("#receiving-supplier").value = supplier.id;
+  $("#btn-next-to-scan").disabled = false;
+});
+
+async function refreshReceivingSuppliers() {
+  const suppliers = await dbSupplierGetAll();
+  const select = $("#receiving-supplier");
+  select.innerHTML = '<option value="">Выберите поставщика</option>';
+  for (const s of suppliers) {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.name;
+    select.append(opt);
+  }
+}
+
+$("#receiving-supplier").addEventListener("change", (e) => {
+  $("#btn-next-to-scan").disabled = !e.target.value;
+});
+
+$("#btn-add-supplier").addEventListener("click", openSupplierModal);
+
+$("#btn-next-to-scan").addEventListener("click", () => {
+  const supplierId = $("#receiving-supplier").value;
+  if (!supplierId) return;
+  receivingSupplier = supplierId;
+  $("#receiving-step-supplier").hidden = true;
+  $("#receiving-step-scan").hidden = false;
+  $("#btn-receiving-cancel").hidden = false;
+});
+
+$("#btn-start-receiving-scan").addEventListener("click", startReceivingScanner);
+$("#btn-stop-receiving-scan").addEventListener("click", stopReceivingScanner);
+
+$("#btn-receiving-manual").addEventListener("click", () => {
+  const code = $("#receiving-manual").value.trim();
+  if (!code) {
+    showToast("Введите штрихкод");
+    return;
+  }
+  stopReceivingScanner();
+  handleReceivingBarcode(code);
+});
+
+async function handleReceivingBarcode(barcode) {
+  receivingBarcode = barcode;
+  const product = await dbGetByBarcode(barcode);
+  receivingProduct = product;
+  if (product) {
+    showReceivingProductStep(product, false);
+  } else {
+    showReceivingProductStep(null, true);
+  }
+}
+
+function showReceivingProductStep(product, isNew) {
+  $("#receiving-step-scan").hidden = true;
+  $("#receiving-step-product").hidden = false;
+  const info = $("#receiving-product-info");
+  info.innerHTML = "";
+  if (isNew) {
+    $("#receiving-product-title").textContent = "Новый товар";
+    $("#receiving-new-fields").hidden = false;
+    $("#receiving-form-barcode").value = receivingBarcode;
+    $("#receiving-form-name").value = "";
+    $("#receiving-form-quantity").value = "1";
+    $("#receiving-photo-preview").innerHTML = "";
+    $("#receiving-form-photo").value = "";
+    $("#receiving-form-expiry-mode").value = "";
+    $("#receiving-form-expiry-from").value = "";
+    $("#receiving-form-expiry-to").value = "";
+    $("#receiving-form-expiry-duration").value = "";
+    $("#receiving-form-expiry-unit").value = "days";
+    updateReceivingExpiryUI();
+  } else {
+    $("#receiving-product-title").textContent = "Приёмка товара";
+    $("#receiving-new-fields").hidden = true;
+    info.innerHTML = `<p><strong>${escapeHtml(product.name)}</strong><br><span class="muted">Штрихкод: ${escapeHtml(product.barcode)}</span><br><span class="muted">На складе: ${product.quantity || 0}</span></p>`;
+    $("#receiving-form-quantity").value = "1";
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+$("#receiving-product-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("#receiving-form-name").value.trim();
+  const quantity = Math.max(1, parseInt($("#receiving-form-quantity").value || "1", 10) || 1);
+  const barcode = receivingBarcode;
+  const file = $("#receiving-form-photo").files && $("#receiving-form-photo").files[0];
+
+  if (!receivingProduct) {
+    if (!name) {
+      showToast("Укажите название товара");
+      return;
+    }
+    const product = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      barcode,
+      name,
+      quantity,
+      photo: file || null,
+      expiry: readReceivingExpiryFromForm(),
+      createdAt: Date.now(),
+    };
+    await dbAdd(product);
+    receivingProduct = product;
+  } else {
+    receivingProduct.quantity = (receivingProduct.quantity || 0) + quantity;
+    if (file) receivingProduct.photo = file;
+    receivingProduct.expiry = readReceivingExpiryFromForm();
+    await dbAdd(receivingProduct);
+  }
+
+  const record = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    supplierId: receivingSupplier,
+    barcode,
+    productName: receivingProduct.name,
+    quantity,
+    date: new Date().toISOString(),
+  };
+  await dbReceivingAdd(record);
+
+  showToast(`Принято: ${quantity} шт.`);
+  closeReceivingModal();
+  switchTab("products");
+});
+
+function readReceivingExpiryFromForm() {
+  const mode = $("#receiving-form-expiry-mode").value;
+  if (!mode) return null;
+  const from = $("#receiving-form-expiry-from").value;
+  const to = $("#receiving-form-expiry-to").value;
+  const durationValue = $("#receiving-form-expiry-duration").value;
+  const durationUnit = $("#receiving-form-expiry-unit").value;
+  return {
+    mode,
+    from: from || null,
+    to: to || null,
+    durationValue: durationValue ? parseInt(durationValue, 10) : null,
+    durationUnit: durationUnit || "days",
+  };
+}
+
+function closeReceivingModal() {
+  $("#receiving-area").hidden = true;
+  $("#btn-start-receiving").hidden = false;
+  $("#receiving-step-supplier").hidden = false;
+  $("#receiving-step-scan").hidden = true;
+  $("#receiving-step-product").hidden = true;
+  $("#btn-receiving-cancel").hidden = true;
+  $("#receiving-manual").value = "";
+  receivingBarcode = null;
+  receivingProduct = null;
+  receivingSupplier = null;
+  stopReceivingScanner();
+}
+
+$("#btn-receiving-cancel").addEventListener("click", closeReceivingModal);
+
+$("#btn-start-receiving").addEventListener("click", async () => {
+  await refreshReceivingSuppliers();
+  $("#btn-start-receiving").hidden = true;
+  $("#receiving-area").hidden = false;
+});
+
+$("#receiving-form-photo").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  const preview = $("#receiving-photo-preview");
+  preview.innerHTML = "";
+  if (!file) return;
+  const img = document.createElement("img");
+  img.src = URL.createObjectURL(file);
+  preview.append(img);
+});
+
 
 async function renderExpiry() {
   const list = $("#expiry-list");

@@ -107,7 +107,45 @@
         <button class="subtab-btn" data-subtab="metrics">Показатели</button>
       </div>
       <div id="subtab-receiving" class="subtab-panel">
-        <p class="empty-hint">Здесь будет модуль «Приёмка».</p>
+        <button id="btn-start-receiving" class="btn btn-primary">Пришел новый товар</button>
+        <div id="receiving-area" class="receiving-area" hidden>
+          <div class="receiving-step" id="receiving-step-supplier">
+            <label class="field">
+              <span>Поставщик</span>
+              <select id="receiving-supplier">
+                <option value="">Выберите поставщика</option>
+              </select>
+            </label>
+            <button type="button" id="btn-add-supplier" class="btn">Добавить поставщика</button>
+            <button type="button" id="btn-next-to-scan" class="btn btn-primary" disabled>Далее</button>
+          </div>
+          <div class="receiving-step" id="receiving-step-scan" hidden>
+            <p class="hint">Отсканируйте штрихкод товара или введите вручную:</p>
+            <div class="scanner-block">
+              <div class="scanner-viewport">
+                <video id="receiving-video" playsinline muted></video>
+                <div class="scan-overlay"><div class="scan-line"></div></div>
+              </div>
+              <div class="scanner-controls">
+                <button id="btn-start-receiving-scan" class="btn btn-primary">Запустить сканер</button>
+                <button id="btn-stop-receiving-scan" class="btn" hidden>Остановить</button>
+              </div>
+              <div class="manual-row">
+                <input id="receiving-manual" type="text" inputmode="numeric" placeholder="Штрихкод вручную" />
+                <button id="btn-receiving-manual" class="btn">Ввести</button>
+              </div>
+            </div>
+          </div>
+          <div class="receiving-step" id="receiving-step-product" hidden>
+            <div id="receiving-product-info"></div>
+            <label class="field">
+              <span>Количество</span>
+              <input id="receiving-quantity" type="number" min="1" inputmode="numeric" value="1" />
+            </label>
+            <button type="button" id="btn-receiving-save" class="btn btn-primary">Подтвердить приёмку</button>
+          </div>
+          <button type="button" id="btn-receiving-cancel" class="btn" hidden>Отмена</button>
+        </div>
       </div>
       <div id="subtab-correction" class="subtab-panel" hidden>
         <p class="empty-hint">Здесь будет модуль «Коррекция».</p>
@@ -124,6 +162,86 @@
     </section>
   </main>
 
+  <!-- Модальное окно добавления поставщика -->
+  <div id="supplier-overlay" class="form-overlay" hidden>
+    <form id="supplier-form" class="product-form">
+      <h2 id="supplier-title">Новый поставщик</h2>
+      <label class="field">
+        <span>Название поставщика</span>
+        <input id="supplier-name" type="text" placeholder="Например: ООО Поставщик" required />
+      </label>
+      <div class="form-actions edit-actions">
+        <button type="button" id="btn-cancel-supplier" class="btn">Отмена</button>
+        <button type="submit" id="btn-save-supplier" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Модальное окно добавления товара при приёмке -->
+  <div id="receiving-product-overlay" class="form-overlay" hidden>
+    <form id="receiving-product-form" class="product-form">
+      <h2 id="receiving-product-title">Новый товар</h2>
+      <div id="receiving-new-fields">
+        <label class="field">
+          <span>Штрихкод</span>
+          <input id="receiving-form-barcode" type="text" readonly />
+        </label>
+        <label class="field">
+          <span>Название товара</span>
+          <input id="receiving-form-name" type="text" placeholder="Например: Молоко 1л" />
+        </label>
+        <label class="field" id="receiving-photo-field">
+          <span>Фото товара</span>
+          <input id="receiving-form-photo" type="file" accept="image/*" capture="environment" />
+          <div id="receiving-photo-preview" class="photo-preview"></div>
+        </label>
+        <div class="expiry-block">
+          <label class="field">
+            <span>Срок годности</span>
+            <select id="receiving-form-expiry-mode">
+              <option value="">Не указывать</option>
+              <option value="range">Диапазон: с — по</option>
+              <option value="duration">От даты + срок (дни/месяцы)</option>
+            </select>
+          </label>
+          <div id="receiving-expiry-edit-fields">
+            <label class="field">
+              <span>Дата начала (выпуск)</span>
+              <input id="receiving-form-expiry-from" type="date" />
+            </label>
+            <label class="field" id="receiving-expiry-to-field">
+              <span>Годен до</span>
+              <input id="receiving-form-expiry-to" type="date" />
+            </label>
+            <div class="expiry-duration" id="receiving-expiry-duration-field">
+              <label class="field">
+                <span>Срок годности</span>
+                <input id="receiving-form-expiry-duration" type="number" min="1" inputmode="numeric" placeholder="Например: 30" />
+              </label>
+              <label class="field">
+                <span>Единица</span>
+                <select id="receiving-form-expiry-unit">
+                  <option value="days">дней</option>
+                  <option value="months">месяцев</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <p class="expiry-preview" id="receiving-expiry-preview"></p>
+        </div>
+      </div>
+      <label class="field">
+        <span>Количество</span>
+        <input id="receiving-form-quantity" type="number" min="1" inputmode="numeric" value="1" required />
+      </label>
+      <div id="receiving-product-info"></div>
+      <div class="form-actions edit-actions">
+        <button type="button" id="btn-cancel-receiving-product" class="btn">Отмена</button>
+        <button type="submit" id="btn-save-receiving-product" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+
     <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
   <div id="form-overlay" class="form-overlay" hidden>
     <form id="product-form" class="product-form">
@@ -135,6 +253,10 @@
       <label class="field">
         <span>Название товара</span>
         <input id="form-name" type="text" placeholder="Например: Молоко 1л" required />
+      </label>
+      <label class="field">
+        <span>Количество на складе</span>
+        <input id="form-quantity" type="number" min="0" inputmode="numeric" value="0" />
       </label>
       <label class="field" id="photo-field">
         <span>Фото товара</span>

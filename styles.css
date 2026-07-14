@@ -499,6 +499,12 @@ body {
   border-color: var(--primary);
 }
 .subtab-panel { animation: fade .2s ease; }
+.muted { color: var(--muted); }
+
+/* Приёмка */
+.receiving-area { margin-top: 16px; }
+.receiving-step { margin-bottom: 16px; }
+.receiving-area .scanner-block { margin-bottom: 12px; }
 
 /* Toast */
 .toast {
