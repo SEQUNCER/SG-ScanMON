@@ -96,9 +96,35 @@
       <div id="history-list" class="history-list"></div>
       <p id="empty-history" class="empty-hint" hidden>Выгрузок пока нет.</p>
     </section>
+
+    <!-- Вкладка: Учёт -->
+    <section id="tab-accounting" class="tab-panel" hidden>
+      <div class="accounting-subtabs">
+        <button class="subtab-btn active" data-subtab="receiving">Приёмка</button>
+        <button class="subtab-btn" data-subtab="correction">Коррекция</button>
+        <button class="subtab-btn" data-subtab="cash">Касса</button>
+        <button class="subtab-btn" data-subtab="goods">Товарный Учёт</button>
+        <button class="subtab-btn" data-subtab="metrics">Показатели</button>
+      </div>
+      <div id="subtab-receiving" class="subtab-panel">
+        <p class="empty-hint">Здесь будет модуль «Приёмка».</p>
+      </div>
+      <div id="subtab-correction" class="subtab-panel" hidden>
+        <p class="empty-hint">Здесь будет модуль «Коррекция».</p>
+      </div>
+      <div id="subtab-cash" class="subtab-panel" hidden>
+        <p class="empty-hint">Здесь будет модуль «Касса».</p>
+      </div>
+      <div id="subtab-goods" class="subtab-panel" hidden>
+        <p class="empty-hint">Здесь будет модуль «Товарный Учёт».</p>
+      </div>
+      <div id="subtab-metrics" class="subtab-panel" hidden>
+        <p class="empty-hint">Здесь будет модуль «Показатели».</p>
+      </div>
+    </section>
   </main>
 
-  <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
+    <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
   <div id="form-overlay" class="form-overlay" hidden>
     <form id="product-form" class="product-form">
       <h2 id="form-title">Новый товар</h2>
@@ -178,6 +204,10 @@
     <button class="nav-btn" data-tab="expiry">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
       <span>Сроки</span>
+    </button>
+    <button class="nav-btn" data-tab="accounting">
+      <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span>
+      <span>Учёт</span>
     </button>
     <button class="nav-btn" data-tab="backup">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>

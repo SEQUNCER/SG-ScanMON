@@ -177,10 +177,24 @@ function switchTab(name) {
     $("#backup-message").hidden = true;
     $("#import-file").value = "";
   }
+  if (name === "accounting") switchSubtab("receiving");
+}
+
+function switchSubtab(name) {
+  document.querySelectorAll(".subtab-panel").forEach((p) => (p.hidden = true));
+  document.querySelectorAll(".subtab-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.subtab === name)
+  );
+  const el = $("#subtab-" + name);
+  if (el) el.hidden = false;
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+});
+
+document.querySelectorAll(".subtab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => switchSubtab(btn.dataset.subtab));
 });
 
 /* ===== Отрисовка списка товаров ===== */
