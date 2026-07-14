@@ -338,6 +338,7 @@ async function startScanner(which) {
     showToast("Библиотека сканера не загрузилась (нужен интернет)");
     return;
   }
+  releaseAllVideoTracks();
   cfg.locked = false;
   const video = $(`#${which}-video`);
   try {
@@ -355,7 +356,13 @@ async function startScanner(which) {
     $(`#btn-stop-${which}`).hidden = false;
   } catch (e) {
     console.error(e);
-    showToast("Нет доступа к камере. Проверьте разрешения и HTTPS/localhost");
+    const msg =
+      (e && e.name) === "NotAllowedError"
+        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
+        : (e && e.name) === "NotFoundError"
+        ? "Камера не найдена."
+        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
+    showToast(msg);
   }
 }
 
@@ -374,6 +381,16 @@ function stopScanner(which) {
   const stopBtn = $(`#btn-stop-${which}`);
   if (startBtn) startBtn.hidden = false;
   if (stopBtn) stopBtn.hidden = true;
+}
+
+function releaseAllVideoTracks() {
+  ["add-video", "find-video", "receiving-video"].forEach((id) => {
+    const video = $("#" + id);
+    if (video && video.srcObject) {
+      video.srcObject.getTracks().forEach((t) => t.stop());
+      video.srcObject = null;
+    }
+  });
 }
 
 ["add", "find"].forEach((which) => {
@@ -829,8 +846,14 @@ async function startReceivingScanner() {
     showToast("Библиотека сканера не загрузилась (нужен интернет)");
     return;
   }
+  stopScanner("add");
+  stopScanner("find");
   cfg.locked = false;
   const video = $("#receiving-video");
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
   try {
     cfg.reader = new ZXing.BrowserMultiFormatReader();
     await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
@@ -846,7 +869,13 @@ async function startReceivingScanner() {
     $("#btn-stop-receiving-scan").hidden = false;
   } catch (e) {
     console.error(e);
-    showToast("Нет доступа к камере. Проверьте разрешения и HTTPS/localhost");
+    const msg =
+      (e && e.name) === "NotAllowedError"
+        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
+        : (e && e.name) === "NotFoundError"
+        ? "Камера не найдена."
+        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
+    showToast(msg);
   }
 }
 
@@ -927,9 +956,6 @@ $("#btn-next-to-scan").addEventListener("click", () => {
   $("#receiving-step-scan").hidden = false;
   $("#btn-receiving-cancel").hidden = false;
 });
-
-$("#btn-start-receiving-scan").addEventListener("click", startReceivingScanner);
-$("#btn-stop-receiving-scan").addEventListener("click", stopReceivingScanner);
 
 $("#btn-receiving-manual").addEventListener("click", () => {
   const code = $("#receiving-manual").value.trim();
