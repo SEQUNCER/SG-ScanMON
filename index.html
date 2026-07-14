@@ -154,7 +154,23 @@
         <p class="empty-hint">Здесь будет модуль «Касса».</p>
       </div>
       <div id="subtab-goods" class="subtab-panel" hidden>
-        <p class="empty-hint">Здесь будет модуль «Товарный Учёт».</p>
+        <div class="goods-table-wrap">
+          <table class="goods-table">
+            <thead>
+              <tr>
+                <th>Товар</th>
+                <th>Штрихкод</th>
+                <th>Кол-во</th>
+                <th>Поставщик</th>
+                <th>Дата прихода</th>
+                <th>Продано</th>
+                <th>Списано</th>
+              </tr>
+            </thead>
+            <tbody id="goods-table-body"></tbody>
+          </table>
+          <p id="empty-goods" class="empty-hint" hidden>Записей о приёмке пока нет.</p>
+        </div>
       </div>
       <div id="subtab-metrics" class="subtab-panel" hidden>
         <p class="empty-hint">Здесь будет модуль «Показатели».</p>

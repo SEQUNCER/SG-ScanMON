@@ -506,6 +506,14 @@ body {
 .receiving-step { margin-bottom: 16px; }
 .receiving-area .scanner-block { margin-bottom: 12px; }
 
+/* Товарный учёт */
+.goods-table-wrap { overflow-x: auto; }
+.goods-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.goods-table th, .goods-table td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.goods-table th { color: var(--muted); font-weight: 600; background: var(--surface); }
+.goods-table td { color: var(--text); }
+.goods-table tr:last-child td { border-bottom: none; }
+
 /* Toast */
 .toast {
   position: fixed;

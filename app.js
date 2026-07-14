@@ -248,6 +248,29 @@ function switchSubtab(name) {
   );
   const el = $("#subtab-" + name);
   if (el) el.hidden = false;
+  if (name === "goods") renderGoodsAccounting();
+}
+
+async function renderGoodsAccounting() {
+  const tbody = $("#goods-table-body");
+  const empty = $("#empty-goods");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const records = await dbReceivingGetAll();
+  const suppliers = await dbSupplierGetAll();
+  const supplierMap = {};
+  for (const s of suppliers) supplierMap[s.id] = s.name;
+  if (!records.length) {
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  for (const r of records) {
+    const tr = document.createElement("tr");
+    const dateStr = r.date ? new Date(r.date).toLocaleString("ru-RU") : "—";
+    tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity || 0}</td><td>${escapeHtml(supplierMap[r.supplierId] || "—")}</td><td>${dateStr}</td><td>—</td><td>—</td>`;
+    tbody.append(tr);
+  }
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -640,6 +663,22 @@ function updateReceivingExpiryUI() {
   preview.textContent = text;
 }
 
+function readReceivingExpiryFromForm() {
+  const mode = $("#receiving-form-expiry-mode").value;
+  if (!mode) return null;
+  const from = $("#receiving-form-expiry-from").value;
+  const to = $("#receiving-form-expiry-to").value;
+  const durationValue = $("#receiving-form-expiry-duration").value;
+  const durationUnit = $("#receiving-form-expiry-unit").value;
+  return {
+    mode,
+    from: from || null,
+    to: to || null,
+    durationValue: durationValue ? parseInt(durationValue, 10) : null,
+    durationUnit: durationUnit || "days",
+  };
+}
+
 ["receiving-form-expiry-mode", "receiving-form-expiry-from", "receiving-form-expiry-to", "receiving-form-expiry-duration", "receiving-form-expiry-unit"].forEach(
   (id) => {
     const el = $("#" + id);
@@ -650,53 +689,13 @@ function updateReceivingExpiryUI() {
 
 $("#btn-cancel-receiving-product").addEventListener("click", closeReceivingModal);
 
-$("#receiving-product-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = $("#receiving-form-name").value.trim();
-  const quantity = Math.max(1, parseInt($("#receiving-form-quantity").value || "1", 10) || 1);
-  const barcode = receivingBarcode;
-  const file = $("#receiving-form-photo").files && $("#receiving-form-photo").files[0];
-
-  if (!receivingProduct) {
-    const product = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-      barcode,
-      name,
-      quantity,
-      photo: file || null,
-      expiry: readReceivingExpiryFromForm(),
-      createdAt: Date.now(),
-    };
-    await dbAdd(product);
-    receivingProduct = product;
-  } else {
-    receivingProduct.quantity = (receivingProduct.quantity || 0) + quantity;
-    if (file) receivingProduct.photo = file;
-    receivingProduct.expiry = readReceivingExpiryFromForm();
-    await dbAdd(receivingProduct);
-  }
-
-  const record = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-    supplierId: receivingSupplier,
-    barcode,
-    productName: receivingProduct.name,
-    quantity,
-    date: new Date().toISOString(),
-  };
-  await dbReceivingAdd(record);
-
-  showToast(`Принято: ${quantity} шт.`);
-  closeReceivingModal();
-  switchTab("products");
-});
-
 function closeReceivingModal() {
   $("#receiving-area").hidden = true;
   $("#btn-start-receiving").hidden = false;
   $("#receiving-step-supplier").hidden = false;
   $("#receiving-step-scan").hidden = true;
   $("#receiving-step-product").hidden = true;
+  $("#receiving-product-overlay").hidden = true;
   $("#btn-receiving-cancel").hidden = true;
   $("#receiving-manual").value = "";
   receivingBarcode = null;
@@ -980,10 +979,9 @@ async function handleReceivingBarcode(barcode) {
 
 function showReceivingProductStep(product, isNew) {
   $("#receiving-step-scan").hidden = true;
-  $("#receiving-step-product").hidden = false;
-  const info = $("#receiving-product-info");
-  info.innerHTML = "";
   if (isNew) {
+    $("#receiving-step-product").hidden = true;
+    $("#receiving-product-overlay").hidden = false;
     $("#receiving-product-title").textContent = "Новый товар";
     $("#receiving-new-fields").hidden = false;
     $("#receiving-form-barcode").value = receivingBarcode;
@@ -998,10 +996,11 @@ function showReceivingProductStep(product, isNew) {
     $("#receiving-form-expiry-unit").value = "days";
     updateReceivingExpiryUI();
   } else {
-    $("#receiving-product-title").textContent = "Приёмка товара";
-    $("#receiving-new-fields").hidden = true;
+    $("#receiving-product-overlay").hidden = true;
+    $("#receiving-step-product").hidden = false;
+    const info = $("#receiving-product-info");
     info.innerHTML = `<p><strong>${escapeHtml(product.name)}</strong><br><span class="muted">Штрихкод: ${escapeHtml(product.barcode)}</span><br><span class="muted">На складе: ${product.quantity || 0}</span></p>`;
-    $("#receiving-form-quantity").value = "1";
+    $("#receiving-quantity").value = "1";
   }
 }
 
@@ -1009,40 +1008,15 @@ function escapeHtml(str) {
   return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-$("#receiving-product-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = $("#receiving-form-name").value.trim();
-  const quantity = Math.max(1, parseInt($("#receiving-form-quantity").value || "1", 10) || 1);
-  const barcode = receivingBarcode;
-  const file = $("#receiving-form-photo").files && $("#receiving-form-photo").files[0];
-
-  if (!receivingProduct) {
-    if (!name) {
-      showToast("Укажите название товара");
-      return;
-    }
-    const product = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-      barcode,
-      name,
-      quantity,
-      photo: file || null,
-      expiry: readReceivingExpiryFromForm(),
-      createdAt: Date.now(),
-    };
-    await dbAdd(product);
-    receivingProduct = product;
-  } else {
-    receivingProduct.quantity = (receivingProduct.quantity || 0) + quantity;
-    if (file) receivingProduct.photo = file;
-    receivingProduct.expiry = readReceivingExpiryFromForm();
-    await dbAdd(receivingProduct);
-  }
+$("#btn-receiving-save").addEventListener("click", async () => {
+  const quantity = Math.max(1, parseInt($("#receiving-quantity").value || "1", 10) || 1);
+  receivingProduct.quantity = (receivingProduct.quantity || 0) + quantity;
+  await dbAdd(receivingProduct);
 
   const record = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
     supplierId: receivingSupplier,
-    barcode,
+    barcode: receivingBarcode,
     productName: receivingProduct.name,
     quantity,
     date: new Date().toISOString(),
@@ -1051,7 +1025,48 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
 
   showToast(`Принято: ${quantity} шт.`);
   closeReceivingModal();
-  switchTab("products");
+  switchSubtab("goods");
+});
+
+$("#btn-cancel-receiving-product").addEventListener("click", closeReceivingModal);
+
+$("#receiving-product-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("#receiving-form-name").value.trim();
+  const quantity = Math.max(1, parseInt($("#receiving-form-quantity").value || "1", 10) || 1);
+  const barcode = receivingBarcode;
+  const file = $("#receiving-form-photo").files && $("#receiving-form-photo").files[0];
+
+  if (!name) {
+    showToast("Укажите название товара");
+    return;
+  }
+  const product = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    barcode,
+    name,
+    quantity,
+    photo: file || null,
+    expiry: readReceivingExpiryFromForm(),
+    createdAt: Date.now(),
+  };
+  await dbAdd(product);
+  receivingProduct = product;
+
+  const record = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    supplierId: receivingSupplier,
+    barcode,
+    productName: product.name,
+    quantity,
+    date: new Date().toISOString(),
+  };
+  await dbReceivingAdd(record);
+
+  showToast(`Принято: ${quantity} шт.`);
+  $("#receiving-product-overlay").hidden = true;
+  closeReceivingModal();
+  switchSubtab("goods");
 });
 
 /* ===== Выгрузка / Загрузка данных ===== */
