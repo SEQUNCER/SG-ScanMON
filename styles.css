@@ -312,6 +312,12 @@ body {
   border-color: var(--danger);
   color: #fff;
 }
+.btn-warning {
+  background: #d97706;
+  border-color: #d97706;
+  color: #fff;
+}
+.btn-warning:active { background: #b45309; }
 .field input[readonly] {
   opacity: .8;
   background: var(--surface);
@@ -505,6 +511,9 @@ body {
 .receiving-area { margin-top: 16px; }
 .receiving-step { margin-bottom: 16px; }
 .receiving-area .scanner-block { margin-bottom: 12px; }
+
+/* Коррекция */
+#subtab-correction .btn { margin-right: 8px; margin-bottom: 8px; }
 
 /* Товарный учёт */
 .goods-table-wrap { overflow-x: auto; }

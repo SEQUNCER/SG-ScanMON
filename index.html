@@ -148,7 +148,36 @@
         </div>
       </div>
       <div id="subtab-correction" class="subtab-panel" hidden>
-        <p class="empty-hint">Здесь будет модуль «Коррекция».</p>
+        <button type="button" id="btn-defect-writeoff" class="btn btn-danger">Списание брака</button>
+        <button type="button" id="btn-expiry-writeoff" class="btn btn-warning">Списание просрока</button>
+        <div id="writeoff-area" class="receiving-area" hidden>
+          <div class="receiving-step" id="writeoff-step-scan">
+            <p class="hint" id="writeoff-hint">Отсканируйте штрихкод товара или введите вручную:</p>
+            <div class="scanner-block">
+              <div class="scanner-viewport">
+                <video id="writeoff-video" playsinline muted></video>
+                <div class="scan-overlay"><div class="scan-line"></div></div>
+              </div>
+              <div class="scanner-controls">
+                <button id="btn-start-writeoff-scan" class="btn btn-primary">Запустить сканер</button>
+                <button id="btn-stop-writeoff-scan" class="btn" hidden>Остановить</button>
+              </div>
+              <div class="manual-row">
+                <input id="writeoff-manual" type="text" inputmode="numeric" placeholder="Штрихкод вручную" />
+                <button id="btn-writeoff-manual" class="btn">Ввести</button>
+              </div>
+            </div>
+          </div>
+          <div class="receiving-step" id="writeoff-step-product" hidden>
+            <div id="writeoff-product-info"></div>
+            <label class="field">
+              <span>Количество для списания</span>
+              <input id="writeoff-quantity" type="number" min="1" inputmode="numeric" value="1" />
+            </label>
+            <button type="button" id="btn-writeoff-confirm" class="btn btn-primary">Подтвердить списание</button>
+          </div>
+          <button type="button" id="btn-writeoff-cancel" class="btn" hidden>Отмена</button>
+        </div>
       </div>
       <div id="subtab-cash" class="subtab-panel" hidden>
         <p class="empty-hint">Здесь будет модуль «Касса».</p>
@@ -160,11 +189,10 @@
               <tr>
                 <th>Товар</th>
                 <th>Штрихкод</th>
-                <th>Кол-во</th>
+                <th>Количество</th>
+                <th>Тип</th>
                 <th>Поставщик</th>
-                <th>Дата прихода</th>
-                <th>Продано</th>
-                <th>Списано</th>
+                <th>Дата</th>
               </tr>
             </thead>
             <tbody id="goods-table-body"></tbody>

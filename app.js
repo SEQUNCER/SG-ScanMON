@@ -5,12 +5,13 @@ const DB_NAME = "scanner-app";
 const STORE = "products";
 const SUPPLIERS_STORE = "suppliers";
 const RECEIVING_STORE = "receiving";
+const WRITEOFFS_STORE = "writeoffs";
 let dbPromise = null;
 
 function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 3);
+    const req = indexedDB.open(DB_NAME, 4);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
@@ -21,6 +22,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(RECEIVING_STORE)) {
         db.createObjectStore(RECEIVING_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(WRITEOFFS_STORE)) {
+        db.createObjectStore(WRITEOFFS_STORE, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("exports")) {
         db.createObjectStore("exports", { keyPath: "id" });
@@ -149,6 +153,27 @@ async function dbReceivingGetAll() {
   });
 }
 
+/* ===== Списания ===== */
+async function dbWriteoffAdd(record) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(WRITEOFFS_STORE, "readwrite");
+    tx.objectStore(WRITEOFFS_STORE).put(record);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbWriteoffGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(WRITEOFFS_STORE, "readonly");
+    const req = tx.objectStore(WRITEOFFS_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /* ===== Вспомогательное ===== */
 const $ = (sel) => document.querySelector(sel);
 const urlCache = new Map();
@@ -230,7 +255,10 @@ function switchTab(name) {
     stopScanner("find");
     $("#find-message").hidden = true;
   }
-  if (name !== "accounting") stopReceivingScanner();
+  if (name !== "accounting") {
+    stopReceivingScanner();
+    stopWriteoffScanner();
+  }
   if (name === "products") renderProducts();
   if (name === "expiry") renderExpiry();
   if (name === "history") renderHistory();
@@ -256,19 +284,42 @@ async function renderGoodsAccounting() {
   const empty = $("#empty-goods");
   if (!tbody) return;
   tbody.innerHTML = "";
-  const records = await dbReceivingGetAll();
+  const receiving = await dbReceivingGetAll();
+  const writeoffs = await dbWriteoffGetAll();
   const suppliers = await dbSupplierGetAll();
   const supplierMap = {};
   for (const s of suppliers) supplierMap[s.id] = s.name;
-  if (!records.length) {
+  const rows = [];
+  for (const r of receiving) {
+    rows.push({
+      productName: r.productName,
+      barcode: r.barcode,
+      quantity: r.quantity,
+      type: "Приёмка",
+      supplier: supplierMap[r.supplierId] || "—",
+      date: r.date,
+    });
+  }
+  for (const w of writeoffs) {
+    rows.push({
+      productName: w.productName,
+      barcode: w.barcode,
+      quantity: -w.quantity,
+      type: w.type === "defect" ? "Брак" : "Просрок",
+      supplier: "—",
+      date: w.date,
+    });
+  }
+  rows.sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (!rows.length) {
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
-  for (const r of records) {
+  for (const r of rows) {
     const tr = document.createElement("tr");
     const dateStr = r.date ? new Date(r.date).toLocaleString("ru-RU") : "—";
-    tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity || 0}</td><td>${escapeHtml(supplierMap[r.supplierId] || "—")}</td><td>${dateStr}</td><td>—</td><td>—</td>`;
+    tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.supplier)}</td><td>${dateStr}</td>`;
     tbody.append(tr);
   }
 }
@@ -1067,6 +1118,152 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
   $("#receiving-product-overlay").hidden = true;
   closeReceivingModal();
   switchSubtab("goods");
+});
+
+/* ===== Коррекция / Списания ===== */
+const writeoffScanners = { writeoff: { reader: null, locked: false } };
+let writeoffType = null;
+let writeoffBarcode = null;
+let writeoffProduct = null;
+
+async function startWriteoffScanner() {
+  const cfg = writeoffScanners.writeoff;
+  if (!window.ZXing) {
+    showToast("Библиотека сканера не загрузилась (нужен интернет)");
+    return;
+  }
+  stopScanner("add");
+  stopScanner("find");
+  stopReceivingScanner();
+  cfg.locked = false;
+  const video = $("#writeoff-video");
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  try {
+    cfg.reader = new ZXing.BrowserMultiFormatReader();
+    await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
+      if (result && !cfg.locked) {
+        cfg.locked = true;
+        const code = result.getText();
+        stopWriteoffScanner();
+        $("#writeoff-manual").value = code;
+        handleWriteoffBarcode(code);
+      }
+    });
+    $("#btn-start-writeoff-scan").hidden = true;
+    $("#btn-stop-writeoff-scan").hidden = false;
+  } catch (e) {
+    console.error(e);
+    const msg =
+      (e && e.name) === "NotAllowedError"
+        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
+        : (e && e.name) === "NotFoundError"
+        ? "Камера не найдена."
+        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
+    showToast(msg);
+  }
+}
+
+function stopWriteoffScanner() {
+  const cfg = writeoffScanners.writeoff;
+  if (cfg.reader && typeof cfg.reader.stopAsync === "function") {
+    cfg.reader.stopAsync().catch(() => {});
+  }
+  cfg.reader = null;
+  const video = $("#writeoff-video");
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  $("#btn-start-writeoff-scan").hidden = false;
+  $("#btn-stop-writeoff-scan").hidden = true;
+}
+
+function openWriteoff(type) {
+  writeoffType = type;
+  writeoffBarcode = null;
+  writeoffProduct = null;
+  $("#writeoff-area").hidden = false;
+  $("#writeoff-step-scan").hidden = false;
+  $("#writeoff-step-product").hidden = true;
+  $("#btn-writeoff-cancel").hidden = false;
+  $("#writeoff-manual").value = "";
+  $("#writeoff-hint").textContent = type === "defect"
+    ? "Отсканируйте штрихкод товара для списания брака:"
+    : "Отсканируйте штрихкод товара для списания просрочки:";
+}
+
+function closeWriteoffModal() {
+  $("#writeoff-area").hidden = true;
+  $("#writeoff-step-scan").hidden = true;
+  $("#writeoff-step-product").hidden = true;
+  $("#btn-writeoff-cancel").hidden = true;
+  $("#writeoff-manual").value = "";
+  writeoffType = null;
+  writeoffBarcode = null;
+  writeoffProduct = null;
+  stopWriteoffScanner();
+}
+
+$("#btn-defect-writeoff").addEventListener("click", () => openWriteoff("defect"));
+$("#btn-expiry-writeoff").addEventListener("click", () => openWriteoff("expiry"));
+$("#btn-writeoff-cancel").addEventListener("click", closeWriteoffModal);
+
+$("#btn-start-writeoff-scan").addEventListener("click", startWriteoffScanner);
+$("#btn-stop-writeoff-scan").addEventListener("click", stopWriteoffScanner);
+
+$("#btn-writeoff-manual").addEventListener("click", () => {
+  const code = $("#writeoff-manual").value.trim();
+  if (!code) {
+    showToast("Введите штрихкод");
+    return;
+  }
+  stopWriteoffScanner();
+  handleWriteoffBarcode(code);
+});
+
+async function handleWriteoffBarcode(barcode) {
+  writeoffBarcode = barcode;
+  const product = await dbGetByBarcode(barcode);
+  writeoffProduct = product;
+  if (!product) {
+    showToast("Товар не найден в базе");
+    closeWriteoffModal();
+    return;
+  }
+  $("#writeoff-step-scan").hidden = true;
+  $("#writeoff-step-product").hidden = false;
+  const info = $("#writeoff-product-info");
+  info.innerHTML = `<p><strong>${escapeHtml(product.name)}</strong><br><span class="muted">Штрихкод: ${escapeHtml(product.barcode)}</span><br><span class="muted">На складе: ${product.quantity || 0}</span></p>`;
+  $("#writeoff-quantity").value = "1";
+}
+
+$("#btn-writeoff-confirm").addEventListener("click", async () => {
+  if (!writeoffProduct) return;
+  const quantity = Math.max(1, parseInt($("#writeoff-quantity").value || "1", 10) || 1);
+  const available = writeoffProduct.quantity || 0;
+  if (quantity > available) {
+    showToast(`Недостаточно на складе. Доступно: ${available}`);
+    return;
+  }
+  writeoffProduct.quantity = available - quantity;
+  await dbAdd(writeoffProduct);
+
+  const record = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    barcode: writeoffBarcode,
+    productName: writeoffProduct.name,
+    quantity,
+    type: writeoffType,
+    date: new Date().toISOString(),
+  };
+  await dbWriteoffAdd(record);
+
+  const typeLabel = writeoffType === "defect" ? "брак" : "просрок";
+  showToast(`Списано: ${quantity} шт. (${typeLabel})`);
+  closeWriteoffModal();
 });
 
 /* ===== Выгрузка / Загрузка данных ===== */
