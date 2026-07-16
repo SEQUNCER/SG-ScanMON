@@ -1524,6 +1524,7 @@ async function startCashScanner() {
         cfg.locked = true;
         stopCashScanner();
         $("#cash-manual").value = code;
+        $("#cash-scan-modal").hidden = true;
         handleCashBarcode(code);
       }
     });
@@ -1607,18 +1608,6 @@ async function updateCashProductPrice() {
 
 function closeCashProductModal() {
   $("#cash-product-overlay").hidden = true;
-}
-
-async function refreshCashProductSelect() {
-  const select = $("#cash-product-select");
-  const products = (await dbGetAll()).sort((a, b) => a.name.localeCompare(b.name));
-  select.innerHTML = '<option value="">Выберите товар</option>';
-  for (const p of products) {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = p.name;
-    select.append(opt);
-  }
 }
 
 async function handleCashBarcode(barcode) {
