@@ -6,12 +6,13 @@ const STORE = "products";
 const SUPPLIERS_STORE = "suppliers";
 const RECEIVING_STORE = "receiving";
 const WRITEOFFS_STORE = "writeoffs";
+const SALES_STORE = "sales";
 let dbPromise = null;
 
 function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 4);
+    const req = indexedDB.open(DB_NAME, 5);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
@@ -25,6 +26,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(WRITEOFFS_STORE)) {
         db.createObjectStore(WRITEOFFS_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(SALES_STORE)) {
+        db.createObjectStore(SALES_STORE, { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("exports")) {
         db.createObjectStore("exports", { keyPath: "id" });
@@ -174,6 +178,27 @@ async function dbWriteoffGetAll() {
   });
 }
 
+/* ===== Продажи ===== */
+async function dbSaleAdd(record) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SALES_STORE, "readwrite");
+    tx.objectStore(SALES_STORE).put(record);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbSaleGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SALES_STORE, "readonly");
+    const req = tx.objectStore(SALES_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /* ===== Вспомогательное ===== */
 const $ = (sel) => document.querySelector(sel);
 const urlCache = new Map();
@@ -258,6 +283,7 @@ function switchTab(name) {
   if (name !== "accounting") {
     stopReceivingScanner();
     stopWriteoffScanner();
+    stopCashScanner();
   }
   if (name === "products") renderProducts();
   if (name === "expiry") renderExpiry();
@@ -286,6 +312,7 @@ async function renderGoodsAccounting() {
   tbody.innerHTML = "";
   const receiving = await dbReceivingGetAll();
   const writeoffs = await dbWriteoffGetAll();
+  const sales = await dbSaleGetAll();
   const suppliers = await dbSupplierGetAll();
   const products = await dbGetAll();
   const supplierMap = {};
@@ -319,6 +346,18 @@ async function renderGoodsAccounting() {
       sellingPrice: product ? product.sellingPrice : null,
     });
   }
+  for (const s of sales) {
+    rows.push({
+      productName: s.productName,
+      barcode: s.barcode,
+      quantity: -s.quantity,
+      type: "Продажа",
+      supplier: "—",
+      date: s.date,
+      purchasePrice: null,
+      sellingPrice: s.price,
+    });
+  }
   rows.sort((a, b) => new Date(b.date) - new Date(a.date));
   if (!rows.length) {
     empty.hidden = false;
@@ -331,6 +370,45 @@ async function renderGoodsAccounting() {
     const purchasePriceStr = r.purchasePrice != null ? r.purchasePrice.toFixed(2) : "—";
     const sellingPriceStr = r.sellingPrice != null ? r.sellingPrice.toFixed(2) : "—";
     tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.supplier)}</td><td>${dateStr}</td><td>${purchasePriceStr}</td><td>${sellingPriceStr}</td>`;
+    tbody.append(tr);
+  }
+}
+
+function switchSubtab(name) {
+  document.querySelectorAll(".subtab-panel").forEach((p) => (p.hidden = true));
+  document.querySelectorAll(".subtab-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.subtab === name)
+  );
+  const el = $("#subtab-" + name);
+  if (el) el.hidden = false;
+  if (name === "goods") renderGoodsAccounting();
+  if (name === "metrics") renderMetrics();
+}
+
+async function renderMetrics() {
+  const sales = await dbSaleGetAll();
+  const today = todayStr();
+  const todaySales = sales.filter((s) => s.date && s.date.startsWith(today));
+  const soldCount = todaySales.reduce((sum, s) => sum + s.quantity, 0);
+  const revenue = todaySales.reduce((sum, s) => sum + (s.total || 0), 0);
+  const soldCountEl = $("#metric-sold-count");
+  const revenueEl = $("#metric-revenue");
+  const tbody = $("#sales-table-body");
+  const empty = $("#empty-sales");
+  if (soldCountEl) soldCountEl.textContent = String(soldCount);
+  if (revenueEl) revenueEl.textContent = revenue.toFixed(2);
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const rows = todaySales.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (!rows.length) {
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  for (const s of rows) {
+    const tr = document.createElement("tr");
+    const dateStr = s.date ? new Date(s.date).toLocaleString("ru-RU") : "—";
+    tr.innerHTML = `<td>${escapeHtml(s.productName || "")}</td><td>${escapeHtml(s.barcode || "")}</td><td>${s.quantity}</td><td>${(s.total || 0).toFixed(2)}</td><td>${dateStr}</td>`;
     tbody.append(tr);
   }
 }
@@ -1338,7 +1416,255 @@ $("#btn-writeoff-confirm").addEventListener("click", async () => {
   closeWriteoffModal();
 });
 
-/* ===== Выгрузка / Загрузка данных ===== */
+/* ===== Касса / Чек ===== */
+let currentCheck = null;
+const cashScanners = { cash: { reader: null, locked: false } };
+
+function createNewCheck() {
+  currentCheck = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    items: [],
+    createdAt: new Date().toISOString(),
+  };
+  $("#check-area").hidden = false;
+  $("#btn-new-check").hidden = true;
+  $("#btn-cancel-check").hidden = false;
+  renderCheckItems();
+}
+
+function closeCheck() {
+  currentCheck = null;
+  $("#check-area").hidden = true;
+  $("#btn-new-check").hidden = false;
+  $("#btn-cancel-check").hidden = true;
+  stopCashScanner();
+}
+
+function renderCheckItems() {
+  const list = $("#check-items-list");
+  const empty = $("#empty-check");
+  const totalEl = $("#check-total-value");
+  list.innerHTML = "";
+  if (!currentCheck || !currentCheck.items.length) {
+    empty.hidden = false;
+    totalEl.textContent = "0.00";
+    return;
+  }
+  empty.hidden = true;
+  let total = 0;
+  for (const item of currentCheck.items) {
+    const row = document.createElement("div");
+    row.className = "check-item-row";
+    const lineTotal = item.quantity * item.price;
+    total += lineTotal;
+    row.innerHTML = `
+      <div class="check-item-info">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span class="muted">×${item.quantity} × ${item.price.toFixed(2)} = ${lineTotal.toFixed(2)}</span>
+      </div>
+      <button type="button" class="btn btn-danger check-item-remove" data-id="${item.id}">×</button>
+    `;
+    list.append(row);
+  }
+  totalEl.textContent = total.toFixed(2);
+  list.querySelectorAll(".check-item-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      currentCheck.items = currentCheck.items.filter((i) => i.id !== id);
+      renderCheckItems();
+    });
+  });
+}
+
+async function addCheckItem(barcode, name, quantity, price) {
+  if (!currentCheck) createNewCheck();
+  const existing = currentCheck.items.find((i) => i.barcode === barcode);
+  if (existing) {
+    existing.quantity += quantity;
+  } else {
+    currentCheck.items.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      barcode,
+      name,
+      quantity,
+      price,
+    });
+  }
+  renderCheckItems();
+}
+
+async function startCashScanner() {
+  const cfg = cashScanners.cash;
+  if (!window.ZXing) {
+    showToast("Библиотека сканера не загрузилась (нужен интернет)");
+    return;
+  }
+  stopScanner("add");
+  stopScanner("find");
+  stopReceivingScanner();
+  stopWriteoffScanner();
+  cfg.locked = false;
+  const video = $("#cash-video");
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  try {
+    cfg.reader = new ZXing.BrowserMultiFormatReader();
+    await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
+      if (result && !cfg.locked) {
+        cfg.locked = true;
+        const code = result.getText();
+        stopCashScanner();
+        $("#cash-manual").value = code;
+        handleCashBarcode(code);
+      }
+    });
+    $("#btn-start-cash-scan").hidden = true;
+    $("#btn-stop-cash-scan").hidden = false;
+  } catch (e) {
+    console.error(e);
+    const msg =
+      (e && e.name) === "NotAllowedError"
+        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
+        : (e && e.name) === "NotFoundError"
+        ? "Камера не найдена."
+        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
+    showToast(msg);
+  }
+}
+
+function stopCashScanner() {
+  const cfg = cashScanners.cash;
+  if (cfg.reader && typeof cfg.reader.stopAsync === "function") {
+    cfg.reader.stopAsync().catch(() => {});
+  }
+  cfg.reader = null;
+  const video = $("#cash-video");
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+  }
+  $("#btn-start-cash-scan").hidden = false;
+  $("#btn-stop-cash-scan").hidden = true;
+}
+
+function openCashProductModal() {
+  $("#cash-product-overlay").hidden = false;
+  $("#cash-product-quantity").value = "1";
+  $("#cash-product-price").value = "";
+  refreshCashProductSelect();
+}
+
+function closeCashProductModal() {
+  $("#cash-product-overlay").hidden = true;
+}
+
+async function refreshCashProductSelect() {
+  const select = $("#cash-product-select");
+  const products = (await dbGetAll()).sort((a, b) => a.name.localeCompare(b.name));
+  select.innerHTML = '<option value="">Выберите товар</option>';
+  for (const p of products) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.append(opt);
+  }
+}
+
+async function handleCashBarcode(barcode) {
+  const product = await dbGetByBarcode(barcode);
+  if (!product) {
+    showToast("Товар не найден в базе");
+    return;
+  }
+  openCashProductModal();
+  $("#cash-product-select").value = product.id;
+  const price = product.sellingPrice != null ? product.sellingPrice : 0;
+  $("#cash-product-price").value = price > 0 ? String(price) : "";
+}
+
+$("#btn-new-check").addEventListener("click", createNewCheck);
+$("#btn-cancel-check").addEventListener("click", closeCheck);
+
+$("#btn-add-check-product").addEventListener("click", async () => {
+  if (!currentCheck) createNewCheck();
+  openCashProductModal();
+});
+
+$("#btn-scan-check-product").addEventListener("click", async () => {
+  if (!currentCheck) createNewCheck();
+  const modal = $("#cash-scan-modal");
+  modal.hidden = false;
+  startCashScanner();
+});
+
+$("#btn-cancel-cash-product").addEventListener("click", closeCashProductModal);
+
+$("#cash-product-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const productId = $("#cash-product-select").value;
+  const quantity = Math.max(1, parseInt($("#cash-product-quantity").value || "1", 10) || 1);
+  const price = parseFloat($("#cash-product-price").value) || 0;
+  const product = await dbGetAll().then((all) => all.find((p) => p.id === productId));
+  if (!product) {
+    showToast("Выберите товар");
+    return;
+  }
+  if (price <= 0) {
+    showToast("Укажите цену");
+    return;
+  }
+  await addCheckItem(product.barcode, product.name, quantity, price);
+  closeCashProductModal();
+  showToast(`Добавлено: ${product.name} ×${quantity}`);
+});
+
+$("#btn-sale-check").addEventListener("click", async () => {
+  if (!currentCheck || !currentCheck.items.length) {
+    showToast("Чек пуст");
+    return;
+  }
+  const total = currentCheck.items.reduce((sum, i) => sum + i.quantity * i.price, 0);
+  for (const item of currentCheck.items) {
+    const product = await dbGetByBarcode(item.barcode);
+    if (product) {
+      product.quantity = Math.max(0, (product.quantity || 0) - item.quantity);
+      await dbAdd(product);
+    }
+    const saleRecord = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      barcode: item.barcode,
+      productName: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      total: item.quantity * item.price,
+      date: new Date().toISOString(),
+    };
+    await dbSaleAdd(saleRecord);
+  }
+  showToast(`Продажа на сумму ${total.toFixed(2)} завершена`);
+  closeCheck();
+  if (!$("#tab-goods").hidden) renderGoodsAccounting();
+  if (!$("#tab-metrics").hidden) renderMetrics();
+});
+
+$("#btn-start-cash-scan").addEventListener("click", startCashScanner);
+$("#btn-stop-cash-scan").addEventListener("click", stopCashScanner);
+$("#btn-close-cash-scan").addEventListener("click", () => {
+  stopCashScanner();
+  $("#cash-scan-modal").hidden = true;
+});
+$("#btn-cash-manual").addEventListener("click", () => {
+  const code = $("#cash-manual").value.trim();
+  if (!code) {
+    showToast("Введите штрихкод");
+    return;
+  }
+  stopCashScanner();
+  handleCashBarcode(code);
+});
+
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     if (!blob) return resolve(null);

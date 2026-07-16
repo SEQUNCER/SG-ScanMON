@@ -523,6 +523,19 @@ body {
 .goods-table td { color: var(--text); }
 .goods-table tr:last-child td { border-bottom: none; }
 
+/* Касса */
+.check-items-list { display: flex; flex-direction: column; gap: 8px; }
+.check-item-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.check-item-info { display: flex; flex-direction: column; gap: 2px; }
+.check-total { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 16px; font-weight: 600; }
+.check-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* Показатели */
+.metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.metric-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.metric-value { font-size: 20px; font-weight: 700; }
+
 /* Toast */
 .toast {
   position: fixed;

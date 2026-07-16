@@ -180,7 +180,41 @@
         </div>
       </div>
       <div id="subtab-cash" class="subtab-panel" hidden>
-        <p class="empty-hint">Здесь будет модуль «Касса».</p>
+        <button type="button" id="btn-new-check" class="btn btn-primary" style="font-size:16px;padding:12px 20px;">Новый чек</button>
+        <div id="check-area" class="receiving-area" hidden>
+          <div class="receiving-step" id="check-step-items">
+            <div id="check-items-list" class="check-items-list"></div>
+            <p id="empty-check" class="empty-hint" hidden>Чек пуст. Добавьте товары.</p>
+            <div class="check-total">
+              <span>Итого:</span>
+              <span id="check-total-value">0.00</span>
+            </div>
+            <div class="check-actions">
+              <button type="button" id="btn-add-check-product" class="btn btn-primary">Добавить товар</button>
+              <button type="button" id="btn-scan-check-product" class="btn">Сканировать товар</button>
+            </div>
+            <button type="button" id="btn-sale-check" class="btn btn-primary" style="margin-top:8px;">Продажа</button>
+          </div>
+          <button type="button" id="btn-cancel-check" class="btn" hidden>Отмена</button>
+        </div>
+      </div>
+      <!-- Модальное окно сканирования для кассы -->
+      <div id="cash-scan-modal" class="form-overlay" hidden>
+        <div class="capture-box">
+          <div class="scanner-viewport">
+            <video id="cash-video" playsinline muted></video>
+            <div class="scan-overlay"><div class="scan-line"></div></div>
+          </div>
+          <div class="scanner-controls">
+            <button id="btn-start-cash-scan" class="btn btn-primary">Запустить сканер</button>
+            <button id="btn-stop-cash-scan" class="btn" hidden>Остановить</button>
+          </div>
+          <div class="manual-row">
+            <input id="cash-manual" type="text" inputmode="numeric" placeholder="Штрихкод вручную" />
+            <button id="btn-cash-manual" class="btn">Ввести</button>
+          </div>
+          <button type="button" id="btn-close-cash-scan" class="btn" style="margin-top:8px;">Закрыть</button>
+        </div>
       </div>
       <div id="subtab-goods" class="subtab-panel" hidden>
         <div class="goods-table-wrap">
@@ -203,7 +237,31 @@
         </div>
       </div>
       <div id="subtab-metrics" class="subtab-panel" hidden>
-        <p class="empty-hint">Здесь будет модуль «Показатели».</p>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Продано за сегодня</span>
+            <span class="metric-value" id="metric-sold-count">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Выручка за сегодня</span>
+            <span class="metric-value" id="metric-revenue">0.00</span>
+          </div>
+        </div>
+        <div class="goods-table-wrap" style="margin-top:16px;">
+          <table class="goods-table">
+            <thead>
+              <tr>
+                <th>Товар</th>
+                <th>Штрихкод</th>
+                <th>Продано</th>
+                <th>Выручка</th>
+                <th>Дата</th>
+              </tr>
+            </thead>
+            <tbody id="sales-table-body"></tbody>
+          </table>
+          <p id="empty-sales" class="empty-hint" hidden>Продаж пока нет.</p>
+        </div>
       </div>
     </section>
   </main>
@@ -296,7 +354,32 @@
     </form>
   </div>
 
-    <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
+  <!-- Модальное окно выбора товара для кассы -->
+  <div id="cash-product-overlay" class="form-overlay" hidden>
+    <form id="cash-product-form" class="product-form">
+      <h2>Добавить товар в чек</h2>
+      <label class="field">
+        <span>Товар</span>
+        <select id="cash-product-select" required>
+          <option value="">Выберите товар</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Количество</span>
+        <input id="cash-product-quantity" type="number" min="1" inputmode="numeric" value="1" required />
+      </label>
+      <label class="field">
+        <span>Цена за ед. (сбыт)</span>
+        <input id="cash-product-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </label>
+      <div class="form-actions edit-actions">
+        <button type="button" id="btn-cancel-cash-product" class="btn">Отмена</button>
+        <button type="submit" id="btn-save-cash-product" class="btn btn-primary">Добавить</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Модальное окно товара (добавление / просмотр / редактирование) -->
   <div id="form-overlay" class="form-overlay" hidden>
     <form id="product-form" class="product-form">
       <h2 id="form-title">Новый товар</h2>
