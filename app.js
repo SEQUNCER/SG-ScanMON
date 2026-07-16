@@ -822,26 +822,63 @@ function readExpiryFromForm() {
 );
 
 async function renderExpiry() {
-  const mode = $("#form-expiry-mode").value;
-  if (!mode) return null;
-  const ex = { mode };
-  ex.from = $("#form-expiry-from").value || null;
-  if (mode === "range") {
-    ex.to = $("#form-expiry-to").value || null;
-  } else {
-    ex.durationValue = parseInt($("#form-expiry-duration").value, 10) || null;
-    ex.durationUnit = $("#form-expiry-unit").value;
+  const list = $("#expiry-list");
+  const empty = $("#empty-expiry");
+  list.innerHTML = "";
+  const products = await dbGetAll();
+  const items = [];
+  for (const p of products) {
+    if (!p.expiry || !p.expiry.mode) continue;
+    const to = computeExpiryTo(p.expiry);
+    const left = to ? daysLeft(to) : null;
+    const status = to ? expiryStatus(to) : null;
+    items.push({ p, to, left, status });
   }
-  return ex;
-}
+  items.sort((a, b) => {
+    if (!a.to && !b.to) return 0;
+    if (!a.to) return 1;
+    if (!b.to) return -1;
+    return a.to - b.to;
+  });
+  empty.hidden = items.length > 0;
 
-["form-expiry-mode", "form-expiry-from", "form-expiry-to", "form-expiry-duration", "form-expiry-unit"].forEach(
-  (id) => {
-    const el = $("#" + id);
-    el.addEventListener("input", updateExpiryUI);
-    el.addEventListener("change", updateExpiryUI);
+  for (const it of items) {
+    const row = document.createElement("div");
+    row.className = "expiry-row status-" + (it.status || "ok");
+
+    const info = document.createElement("div");
+    info.className = "expiry-info";
+    const name = document.createElement("p");
+    name.className = "expiry-name";
+    name.textContent = it.p.name;
+    const sub = document.createElement("p");
+    sub.className = "expiry-sub";
+    const fromStr = formatDate(parseDate(it.p.expiry.from));
+    if (it.p.expiry.mode === "range") {
+      sub.textContent = `с ${fromStr} по ${formatDate(it.to)}`;
+    } else {
+      const u = it.p.expiry.durationUnit === "months" ? "мес." : "дн.";
+      sub.textContent = `с ${fromStr} + ${it.p.expiry.durationValue} ${u} → ${formatDate(it.to)}`;
+    }
+    info.append(name, sub);
+
+    const badge = document.createElement("div");
+    badge.className = "expiry-badge";
+    if (it.status === "expired") {
+      badge.textContent = `просрочен на ${Math.abs(it.left)} дн.`;
+    } else if (it.status === "soon") {
+      badge.textContent = `осталось ${it.left} дн.`;
+    } else if (it.status === "ok") {
+      badge.textContent = `осталось ${it.left} дн.`;
+    } else {
+      badge.textContent = "срок не определен";
+    }
+
+    row.append(info, badge);
+    row.addEventListener("click", () => openFormView(it.p.id));
+    list.append(row);
   }
-);
+}
 
 $("#btn-edit-form").addEventListener("click", () => {
   if (formMode === "view") {
