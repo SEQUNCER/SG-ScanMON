@@ -193,6 +193,8 @@
                 <th>Тип</th>
                 <th>Поставщик</th>
                 <th>Дата</th>
+                <th>Закупочная цена</th>
+                <th>Цена сбыта</th>
               </tr>
             </thead>
             <tbody id="goods-table-body"></tbody>
@@ -278,6 +280,14 @@
         <span>Количество</span>
         <input id="receiving-form-quantity" type="number" min="1" inputmode="numeric" value="1" required />
       </label>
+      <label class="field">
+        <span>Закупочная цена</span>
+        <input id="receiving-form-purchase-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </label>
+      <label class="field">
+        <span>Цена сбыта</span>
+        <input id="receiving-form-selling-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </label>
       <div id="receiving-product-info"></div>
       <div class="form-actions edit-actions">
         <button type="button" id="btn-cancel-receiving-product" class="btn">Отмена</button>
@@ -301,6 +311,14 @@
       <label class="field">
         <span>Количество на складе</span>
         <input id="form-quantity" type="number" min="0" inputmode="numeric" value="0" />
+      </label>
+      <label class="field">
+        <span>Закупочная цена</span>
+        <input id="form-purchase-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </label>
+      <label class="field">
+        <span>Цена сбыта</span>
+        <input id="form-selling-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
       </label>
       <label class="field" id="photo-field">
         <span>Фото товара</span>

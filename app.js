@@ -287,10 +287,14 @@ async function renderGoodsAccounting() {
   const receiving = await dbReceivingGetAll();
   const writeoffs = await dbWriteoffGetAll();
   const suppliers = await dbSupplierGetAll();
+  const products = await dbGetAll();
   const supplierMap = {};
   for (const s of suppliers) supplierMap[s.id] = s.name;
+  const productMap = {};
+  for (const p of products) productMap[p.barcode] = p;
   const rows = [];
   for (const r of receiving) {
+    const product = productMap[r.barcode];
     rows.push({
       productName: r.productName,
       barcode: r.barcode,
@@ -298,9 +302,12 @@ async function renderGoodsAccounting() {
       type: "Приёмка",
       supplier: supplierMap[r.supplierId] || "—",
       date: r.date,
+      purchasePrice: product ? product.purchasePrice : null,
+      sellingPrice: product ? product.sellingPrice : null,
     });
   }
   for (const w of writeoffs) {
+    const product = productMap[w.barcode];
     rows.push({
       productName: w.productName,
       barcode: w.barcode,
@@ -308,6 +315,8 @@ async function renderGoodsAccounting() {
       type: w.type === "defect" ? "Брак" : "Просрок",
       supplier: "—",
       date: w.date,
+      purchasePrice: product ? product.purchasePrice : null,
+      sellingPrice: product ? product.sellingPrice : null,
     });
   }
   rows.sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -319,7 +328,9 @@ async function renderGoodsAccounting() {
   for (const r of rows) {
     const tr = document.createElement("tr");
     const dateStr = r.date ? new Date(r.date).toLocaleString("ru-RU") : "—";
-    tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.supplier)}</td><td>${dateStr}</td>`;
+    const purchasePriceStr = r.purchasePrice != null ? r.purchasePrice.toFixed(2) : "—";
+    const sellingPriceStr = r.sellingPrice != null ? r.sellingPrice.toFixed(2) : "—";
+    tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.supplier)}</td><td>${dateStr}</td><td>${purchasePriceStr}</td><td>${sellingPriceStr}</td>`;
     tbody.append(tr);
   }
 }
@@ -511,6 +522,8 @@ function setFormMode(mode) {
   const title = $("#form-title");
   const nameInput = $("#form-name");
   const quantityInput = $("#form-quantity");
+  const purchasePriceInput = $("#form-purchase-price");
+  const sellingPriceInput = $("#form-selling-price");
   const photoInput = $("#form-photo");
   const photoField = $("#photo-field");
   const preview = $("#photo-preview");
@@ -525,6 +538,8 @@ function setFormMode(mode) {
     title.textContent = "Новый товар";
     nameInput.readOnly = false;
     quantityInput.readOnly = false;
+    purchasePriceInput.readOnly = false;
+    sellingPriceInput.readOnly = false;
     photoInput.hidden = false;
     photoField.hidden = false;
     viewActions.hidden = true;
@@ -536,6 +551,8 @@ function setFormMode(mode) {
     title.textContent = "Карточка товара";
     nameInput.readOnly = true;
     quantityInput.readOnly = true;
+    purchasePriceInput.readOnly = true;
+    sellingPriceInput.readOnly = true;
     photoInput.hidden = true;
     photoField.hidden = false;
     viewActions.hidden = false;
@@ -546,6 +563,8 @@ function setFormMode(mode) {
     title.textContent = "Редактировать товар";
     nameInput.readOnly = false;
     quantityInput.readOnly = false;
+    purchasePriceInput.readOnly = false;
+    sellingPriceInput.readOnly = false;
     photoInput.hidden = false;
     photoField.hidden = false;
     viewActions.hidden = true;
@@ -564,6 +583,8 @@ function openFormAdd(barcode) {
   $("#form-barcode").value = barcode;
   $("#form-name").value = "";
   $("#form-quantity").value = "0";
+  $("#form-purchase-price").value = "";
+  $("#form-selling-price").value = "";
   $("#photo-preview").innerHTML = "";
   $("#form-photo").value = "";
   $("#form-expiry-mode").value = "";
@@ -584,6 +605,8 @@ async function openFormView(id) {
   $("#form-barcode").value = currentProduct.barcode;
   $("#form-name").value = currentProduct.name;
   $("#form-quantity").value = String(currentProduct.quantity || 0);
+  $("#form-purchase-price").value = currentProduct.purchasePrice != null ? String(currentProduct.purchasePrice) : "";
+  $("#form-selling-price").value = currentProduct.sellingPrice != null ? String(currentProduct.sellingPrice) : "";
   const preview = $("#photo-preview");
   preview.innerHTML = "";
   const url = getPhotoUrl(currentProduct.photo);
@@ -856,6 +879,8 @@ $("#product-form").addEventListener("submit", async (e) => {
   const barcode = $("#form-barcode").value.trim();
   const name = $("#form-name").value.trim();
   const quantity = Math.max(0, parseInt($("#form-quantity").value || "0", 10) || 0);
+  const purchasePrice = parseFloat($("#form-purchase-price").value) || null;
+  const sellingPrice = parseFloat($("#form-selling-price").value) || null;
   if (!name) {
     showToast("Укажите название товара");
     return;
@@ -868,6 +893,8 @@ $("#product-form").addEventListener("submit", async (e) => {
       barcode,
       name,
       quantity,
+      purchasePrice,
+      sellingPrice,
       photo: file || null,
       expiry: readExpiryFromForm(),
       createdAt: Date.now(),
@@ -877,6 +904,8 @@ $("#product-form").addEventListener("submit", async (e) => {
   } else if (formMode === "edit" && currentProduct) {
     currentProduct.name = name;
     currentProduct.quantity = quantity;
+    currentProduct.purchasePrice = purchasePrice;
+    currentProduct.sellingPrice = sellingPrice;
     if (file) currentProduct.photo = file;
     currentProduct.expiry = readExpiryFromForm();
     await dbAdd(currentProduct);
@@ -1038,6 +1067,8 @@ function showReceivingProductStep(product, isNew) {
     $("#receiving-form-barcode").value = receivingBarcode;
     $("#receiving-form-name").value = "";
     $("#receiving-form-quantity").value = "1";
+    $("#receiving-form-purchase-price").value = "";
+    $("#receiving-form-selling-price").value = "";
     $("#receiving-photo-preview").innerHTML = "";
     $("#receiving-form-photo").value = "";
     $("#receiving-form-expiry-mode").value = "";
@@ -1085,6 +1116,8 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = $("#receiving-form-name").value.trim();
   const quantity = Math.max(1, parseInt($("#receiving-form-quantity").value || "1", 10) || 1);
+  const purchasePrice = parseFloat($("#receiving-form-purchase-price").value) || null;
+  const sellingPrice = parseFloat($("#receiving-form-selling-price").value) || null;
   const barcode = receivingBarcode;
   const file = $("#receiving-form-photo").files && $("#receiving-form-photo").files[0];
 
@@ -1097,6 +1130,8 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
     barcode,
     name,
     quantity,
+    purchasePrice,
+    sellingPrice,
     photo: file || null,
     expiry: readReceivingExpiryFromForm(),
     createdAt: Date.now(),
