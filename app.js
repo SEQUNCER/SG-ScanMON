@@ -1441,6 +1441,8 @@ function closeCheck() {
   $("#btn-new-check").hidden = false;
   $("#btn-cancel-check").hidden = true;
   stopCashScanner();
+  $("#cash-scan-modal").hidden = true;
+  $("#cash-manual").value = "";
 }
 
 function renderCheckItems() {
@@ -1506,6 +1508,7 @@ async function startCashScanner() {
   stopScanner("find");
   stopReceivingScanner();
   stopWriteoffScanner();
+  stopCashScanner();
   cfg.locked = false;
   const video = $("#cash-video");
   if (video && video.srcObject) {
@@ -1544,6 +1547,7 @@ function stopCashScanner() {
     cfg.reader.stopAsync().catch(() => {});
   }
   cfg.reader = null;
+  cfg.locked = false;
   const video = $("#cash-video");
   if (video && video.srcObject) {
     video.srcObject.getTracks().forEach((t) => t.stop());
@@ -1597,6 +1601,7 @@ $("#btn-add-check-product").addEventListener("click", async () => {
 
 $("#btn-scan-check-product").addEventListener("click", async () => {
   if (!currentCheck) createNewCheck();
+  $("#cash-manual").value = "";
   const modal = $("#cash-scan-modal");
   modal.hidden = false;
 });
@@ -1656,6 +1661,7 @@ $("#btn-stop-cash-scan").addEventListener("click", stopCashScanner);
 $("#btn-close-cash-scan").addEventListener("click", () => {
   stopCashScanner();
   $("#cash-scan-modal").hidden = true;
+  $("#cash-manual").value = "";
 });
 $("#btn-cash-manual").addEventListener("click", () => {
   const code = $("#cash-manual").value.trim();
