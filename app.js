@@ -1582,10 +1582,9 @@ async function handleCashBarcode(barcode) {
     showToast("Товар не найден в базе");
     return;
   }
-  openCashProductModal();
-  $("#cash-product-select").value = product.id;
   const price = product.sellingPrice != null ? product.sellingPrice : 0;
-  $("#cash-product-price").value = price > 0 ? String(price) : "";
+  await addCheckItem(product.barcode, product.name, 1, price);
+  showToast(`Добавлено: ${product.name}`);
 }
 
 $("#btn-new-check").addEventListener("click", createNewCheck);
