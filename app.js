@@ -1525,6 +1525,8 @@ async function startCashScanner() {
         stopCashScanner();
         $("#cash-manual").value = code;
         handleCashBarcode(code);
+        $("#cash-scan-modal").hidden = true;
+        setTimeout(() => { cfg.locked = false; }, 1500);
       }
     });
     $("#btn-start-cash-scan").hidden = true;
@@ -1547,7 +1549,6 @@ function stopCashScanner() {
     cfg.reader.stopAsync().catch(() => {});
   }
   cfg.reader = null;
-  cfg.locked = false;
   const video = $("#cash-video");
   if (video && video.srcObject) {
     video.srcObject.getTracks().forEach((t) => t.stop());
@@ -1557,11 +1558,53 @@ function stopCashScanner() {
   $("#btn-stop-cash-scan").hidden = true;
 }
 
-function openCashProductModal() {
+function openCashProductModal(productId = null, quantity = 1, price = null) {
   $("#cash-product-overlay").hidden = false;
-  $("#cash-product-quantity").value = "1";
-  $("#cash-product-price").value = "";
+  $("#cash-product-quantity").value = String(quantity);
   refreshCashProductSelect();
+  if (productId) {
+    $("#cash-product-select").value = productId;
+    updateCashProductPrice();
+    $("#cash-product-select").disabled = true;
+  } else {
+    $("#cash-product-select").disabled = false;
+    $("#cash-product-price").value = "";
+  }
+  if (price != null && price > 0) {
+    $("#cash-product-price").value = String(price);
+  } else {
+    $("#cash-product-price").value = "";
+  }
+}
+
+async function refreshCashProductSelect() {
+  const select = $("#cash-product-select");
+  const products = (await dbGetAll()).sort((a, b) => a.name.localeCompare(b.name));
+  select.innerHTML = '<option value="">Выберите товар</option>';
+  for (const p of products) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.append(opt);
+  }
+}
+
+async function updateCashProductPrice() {
+  const productId = $("#cash-product-select").value;
+  const priceInput = $("#cash-product-price");
+  if (!productId) {
+    priceInput.value = "";
+    priceInput.readOnly = false;
+    return;
+  }
+  const product = (await dbGetAll()).find((p) => p.id === productId);
+  if (product && product.sellingPrice != null) {
+    priceInput.value = String(product.sellingPrice);
+    priceInput.readOnly = true;
+  } else {
+    priceInput.value = "";
+    priceInput.readOnly = false;
+  }
 }
 
 function closeCashProductModal() {
@@ -1584,11 +1627,22 @@ async function handleCashBarcode(barcode) {
   const product = await dbGetByBarcode(barcode);
   if (!product) {
     showToast("Товар не найден в базе");
+    $("#cash-scan-modal").hidden = true;
+    return;
+  }
+  const existing = currentCheck ? currentCheck.items.find((i) => i.barcode === barcode) : null;
+  if (existing) {
+    existing.quantity += 1;
+    renderCheckItems();
+    showToast(`Количество увеличено: ${product.name} ×${existing.quantity}`);
+    $("#cash-scan-modal").hidden = true;
     return;
   }
   const price = product.sellingPrice != null ? product.sellingPrice : 0;
   await addCheckItem(product.barcode, product.name, 1, price);
+  openCashProductModal(product.id, 1, price);
   showToast(`Добавлено: ${product.name}`);
+  $("#cash-scan-modal").hidden = true;
 }
 
 $("#btn-new-check").addEventListener("click", createNewCheck);
@@ -1598,6 +1652,8 @@ $("#btn-add-check-product").addEventListener("click", async () => {
   if (!currentCheck) createNewCheck();
   openCashProductModal();
 });
+
+$("#cash-product-select").addEventListener("change", updateCashProductPrice);
 
 $("#btn-scan-check-product").addEventListener("click", async () => {
   if (!currentCheck) createNewCheck();
