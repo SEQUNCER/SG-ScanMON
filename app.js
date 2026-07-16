@@ -1525,8 +1525,6 @@ async function startCashScanner() {
         stopCashScanner();
         $("#cash-manual").value = code;
         handleCashBarcode(code);
-        $("#cash-scan-modal").hidden = true;
-        setTimeout(() => { cfg.locked = false; }, 1500);
       }
     });
     $("#btn-start-cash-scan").hidden = true;
@@ -1627,22 +1625,10 @@ async function handleCashBarcode(barcode) {
   const product = await dbGetByBarcode(barcode);
   if (!product) {
     showToast("Товар не найден в базе");
-    $("#cash-scan-modal").hidden = true;
-    return;
-  }
-  const existing = currentCheck ? currentCheck.items.find((i) => i.barcode === barcode) : null;
-  if (existing) {
-    existing.quantity += 1;
-    renderCheckItems();
-    showToast(`Количество увеличено: ${product.name} ×${existing.quantity}`);
-    $("#cash-scan-modal").hidden = true;
     return;
   }
   const price = product.sellingPrice != null ? product.sellingPrice : 0;
-  await addCheckItem(product.barcode, product.name, 1, price);
   openCashProductModal(product.id, 1, price);
-  showToast(`Добавлено: ${product.name}`);
-  $("#cash-scan-modal").hidden = true;
 }
 
 $("#btn-new-check").addEventListener("click", createNewCheck);
