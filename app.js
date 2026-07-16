@@ -508,8 +508,9 @@ async function startScanner(which) {
     cfg.reader = new ZXing.BrowserMultiFormatReader();
     await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
       if (result && !cfg.locked) {
-        cfg.locked = true;
         const code = result.getText();
+        if (!code) return;
+        cfg.locked = true;
         stopScanner(which);
         if (which === "add") openFormAdd(code);
         else handleFind(code);
@@ -1052,8 +1053,9 @@ async function startReceivingScanner() {
     cfg.reader = new ZXing.BrowserMultiFormatReader();
     await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
       if (result && !cfg.locked) {
-        cfg.locked = true;
         const code = result.getText();
+        if (!code) return;
+        cfg.locked = true;
         stopReceivingScanner();
         $("#receiving-manual").value = code;
         handleReceivingBarcode(code);
@@ -1295,8 +1297,9 @@ async function startWriteoffScanner() {
     cfg.reader = new ZXing.BrowserMultiFormatReader();
     await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
       if (result && !cfg.locked) {
-        cfg.locked = true;
         const code = result.getText();
+        if (!code) return;
+        cfg.locked = true;
         stopWriteoffScanner();
         $("#writeoff-manual").value = code;
         handleWriteoffBarcode(code);
@@ -1513,8 +1516,9 @@ async function startCashScanner() {
     cfg.reader = new ZXing.BrowserMultiFormatReader();
     await cfg.reader.decodeFromVideoDevice(undefined, video, (result) => {
       if (result && !cfg.locked) {
-        cfg.locked = true;
         const code = result.getText();
+        if (!code) return;
+        cfg.locked = true;
         stopCashScanner();
         $("#cash-manual").value = code;
         handleCashBarcode(code);
@@ -1596,7 +1600,6 @@ $("#btn-scan-check-product").addEventListener("click", async () => {
   if (!currentCheck) createNewCheck();
   const modal = $("#cash-scan-modal");
   modal.hidden = false;
-  startCashScanner();
 });
 
 $("#btn-cancel-cash-product").addEventListener("click", closeCashProductModal);
