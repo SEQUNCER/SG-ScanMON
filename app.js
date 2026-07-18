@@ -203,6 +203,20 @@ async function dbSaleGetAll() {
 const $ = (sel) => document.querySelector(sel);
 const urlCache = new Map();
 
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+const SCANNER_ERRORS = {
+  NotAllowedError: "Нет доступа к камере. Разрешите доступ в настройках браузера.",
+  NotFoundError: "Камера не найдена.",
+};
+
+function scannerErrorMsg(e) {
+  const name = e && e.name;
+  return SCANNER_ERRORS[name] || "Не удалось запустить сканер. Проверьте камеру и разрешения.";
+}
+
 function showToast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -303,6 +317,7 @@ function switchSubtab(name) {
   const el = $("#subtab-" + name);
   if (el) el.hidden = false;
   if (name === "goods") renderGoodsAccounting();
+  if (name === "metrics") renderMetrics();
 }
 
 async function renderGoodsAccounting() {
@@ -372,17 +387,6 @@ async function renderGoodsAccounting() {
     tr.innerHTML = `<td>${escapeHtml(r.productName || "")}</td><td>${escapeHtml(r.barcode || "")}</td><td>${r.quantity}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.supplier)}</td><td>${dateStr}</td><td>${purchasePriceStr}</td><td>${sellingPriceStr}</td>`;
     tbody.append(tr);
   }
-}
-
-function switchSubtab(name) {
-  document.querySelectorAll(".subtab-panel").forEach((p) => (p.hidden = true));
-  document.querySelectorAll(".subtab-btn").forEach((b) =>
-    b.classList.toggle("active", b.dataset.subtab === name)
-  );
-  const el = $("#subtab-" + name);
-  if (el) el.hidden = false;
-  if (name === "goods") renderGoodsAccounting();
-  if (name === "metrics") renderMetrics();
 }
 
 async function renderMetrics() {
@@ -520,13 +524,7 @@ async function startScanner(which) {
     $(`#btn-stop-${which}`).hidden = false;
   } catch (e) {
     console.error(e);
-    const msg =
-      (e && e.name) === "NotAllowedError"
-        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
-        : (e && e.name) === "NotFoundError"
-        ? "Камера не найдена."
-        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
-    showToast(msg);
+    showToast(scannerErrorMsg(e));
   }
 }
 
@@ -548,7 +546,7 @@ function stopScanner(which) {
 }
 
 function releaseAllVideoTracks() {
-  ["add-video", "find-video", "receiving-video"].forEach((id) => {
+  ["add-video", "find-video", "receiving-video", "writeoff-video", "cash-video"].forEach((id) => {
     const video = $("#" + id);
     if (video && video.srcObject) {
       video.srcObject.getTracks().forEach((t) => t.stop());
@@ -1005,7 +1003,7 @@ $("#product-form").addEventListener("submit", async (e) => {
 
   if (formMode === "add") {
     const product = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      id: genId(),
       barcode,
       name,
       quantity,
@@ -1065,13 +1063,7 @@ async function startReceivingScanner() {
     $("#btn-stop-receiving-scan").hidden = false;
   } catch (e) {
     console.error(e);
-    const msg =
-      (e && e.name) === "NotAllowedError"
-        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
-        : (e && e.name) === "NotFoundError"
-        ? "Камера не найдена."
-        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
-    showToast(msg);
+    showToast(scannerErrorMsg(e));
   }
 }
 
@@ -1114,7 +1106,7 @@ $("#supplier-form").addEventListener("submit", async (e) => {
     return;
   }
   const supplier = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     name,
     createdAt: Date.now(),
   };
@@ -1213,7 +1205,7 @@ $("#btn-receiving-save").addEventListener("click", async () => {
   await dbAdd(receivingProduct);
 
   const record = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     supplierId: receivingSupplier,
     barcode: receivingBarcode,
     productName: receivingProduct.name,
@@ -1243,7 +1235,7 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
     return;
   }
   const product = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     barcode,
     name,
     quantity,
@@ -1257,7 +1249,7 @@ $("#receiving-product-form").addEventListener("submit", async (e) => {
   receivingProduct = product;
 
   const record = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     supplierId: receivingSupplier,
     barcode,
     productName: product.name,
@@ -1309,13 +1301,7 @@ async function startWriteoffScanner() {
     $("#btn-stop-writeoff-scan").hidden = false;
   } catch (e) {
     console.error(e);
-    const msg =
-      (e && e.name) === "NotAllowedError"
-        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
-        : (e && e.name) === "NotFoundError"
-        ? "Камера не найдена."
-        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
-    showToast(msg);
+    showToast(scannerErrorMsg(e));
   }
 }
 
@@ -1405,7 +1391,7 @@ $("#btn-writeoff-confirm").addEventListener("click", async () => {
   await dbAdd(writeoffProduct);
 
   const record = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     barcode: writeoffBarcode,
     productName: writeoffProduct.name,
     quantity,
@@ -1425,7 +1411,7 @@ const cashScanners = { cash: { reader: null, locked: false } };
 
 function createNewCheck() {
   currentCheck = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     items: [],
     createdAt: new Date().toISOString(),
   };
@@ -1488,7 +1474,7 @@ async function addCheckItem(barcode, name, quantity, price) {
     existing.quantity += quantity;
   } else {
     currentCheck.items.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      id: genId(),
       barcode,
       name,
       quantity,
@@ -1532,13 +1518,7 @@ async function startCashScanner() {
     $("#btn-stop-cash-scan").hidden = false;
   } catch (e) {
     console.error(e);
-    const msg =
-      (e && e.name) === "NotAllowedError"
-        ? "Нет доступа к камере. Разрешите доступ в настройках браузера."
-        : (e && e.name) === "NotFoundError"
-        ? "Камера не найдена."
-        : "Не удалось запустить сканер. Проверьте камеру и разрешения.";
-    showToast(msg);
+    showToast(scannerErrorMsg(e));
   }
 }
 
@@ -1617,7 +1597,15 @@ async function handleCashBarcode(barcode) {
     return;
   }
   const price = product.sellingPrice != null ? product.sellingPrice : 0;
-  openCashProductModal(product.id, 1, price);
+  if (price <= 0) {
+    openCashProductModal(product.id, 1, price);
+    return;
+  }
+  if (!currentCheck) createNewCheck();
+  await addCheckItem(product.barcode, product.name, 1, price);
+  $("#cash-scan-modal").hidden = true;
+  $("#cash-manual").value = "";
+  showToast(`Добавлено: ${product.name}`);
 }
 
 $("#btn-new-check").addEventListener("click", createNewCheck);
@@ -1671,7 +1659,7 @@ $("#btn-sale-check").addEventListener("click", async () => {
       await dbAdd(product);
     }
     const saleRecord = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      id: genId(),
       barcode: item.barcode,
       productName: item.name,
       quantity: item.quantity,
@@ -1683,8 +1671,8 @@ $("#btn-sale-check").addEventListener("click", async () => {
   }
   showToast(`Продажа на сумму ${total.toFixed(2)} завершена`);
   closeCheck();
-  if (!$("#tab-goods").hidden) renderGoodsAccounting();
-  if (!$("#tab-metrics").hidden) renderMetrics();
+  if (!$("#subtab-goods").hidden) renderGoodsAccounting();
+  if (!$("#subtab-metrics").hidden) renderMetrics();
 });
 
 $("#btn-start-cash-scan").addEventListener("click", startCashScanner);
@@ -1715,13 +1703,21 @@ function blobToDataURL(blob) {
 }
 
 function dataURLToBlob(dataURL) {
-  if (!dataURL || typeof dataURL !== "string" || !dataURL.startsWith("data:")) return null;
-  const [meta, b64] = dataURL.split(",");
+  if (!dataURL || typeof dataURL !== "string") return null;
+  const idx = dataURL.indexOf(",");
+  if (idx < 0) return null;
+  const meta = dataURL.slice(0, idx);
+  const b64 = dataURL.slice(idx + 1);
+  if (!meta.startsWith("data:") || !b64) return null;
   const mime = (meta.match(/data:([^;]+)/) || [])[1] || "application/octet-stream";
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], { type: mime });
+  try {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  } catch (_) {
+    return null;
+  }
 }
 
 function todayStr() {
@@ -1744,7 +1740,7 @@ async function exportData() {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const filename = `товары_${todayStr()}.json`;
   await dbExportAdd({
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    id: genId(),
     createdAt: Date.now(),
     filename,
     blob,
